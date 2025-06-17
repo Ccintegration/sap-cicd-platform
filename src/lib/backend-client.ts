@@ -252,9 +252,17 @@ export class BackendAPIClient {
     return response.data || [];
   }
 
-  async getIntegrationFlows(): Promise<IntegrationFlow[]> {
+  async getIntegrationFlows(packageIds?: string[]): Promise<IntegrationFlow[]> {
+    let endpoint = "/sap/iflows";
+
+    // Add package IDs as query parameter if provided
+    if (packageIds && packageIds.length > 0) {
+      const packageIdsParam = packageIds.join(",");
+      endpoint = `/sap/iflows?package_ids=${encodeURIComponent(packageIdsParam)}`;
+    }
+
     const response: BackendResponse<IntegrationFlow[]> =
-      await this.makeRequest("/sap/iflows");
+      await this.makeRequest(endpoint);
 
     if (!response.success) {
       throw new Error(response.error || "Failed to fetch iFlows");

@@ -97,18 +97,33 @@ const Stage1PackageList: React.FC<Stage1Props> = ({
       : [...selectedPackages, packageId];
 
     setSelectedPackages(newSelected);
-    onComplete({ selectedPackages: newSelected });
+    
+    // Only update data, DO NOT call onComplete to prevent automatic routing
+    // onComplete will only be called when user clicks Next button
   };
 
   const handleSelectAll = () => {
     if (selectedPackages.length === filteredPackages.length) {
       setSelectedPackages([]);
-      onComplete({ selectedPackages: [] });
     } else {
       const allIds = filteredPackages.map((pkg) => pkg.id);
       setSelectedPackages(allIds);
-      onComplete({ selectedPackages: allIds });
     }
+  };
+
+  const handleNext = () => {
+    // Only proceed to next stage when user explicitly clicks Next button
+    if (selectedPackages.length === 0) {
+      alert("Please select at least one package before proceeding.");
+      return;
+    }
+
+    // Update data with final selection and proceed to next stage
+    onComplete({ 
+      ...data,
+      selectedPackages: selectedPackages 
+    });
+    onNext();
   };
 
   const getStatusBadgeColor = (status: string) => {
@@ -154,7 +169,7 @@ const Stage1PackageList: React.FC<Stage1Props> = ({
         </CardTitle>
         <p className="text-sm text-gray-600">
           Choose the integration packages you want to include in your CI/CD
-          pipeline. Data is fetched from your SAP Integration Suite via the
+          pipeline. You can select multiple packages. Data is fetched from your SAP Integration Suite via the
           backend API.
         </p>
 
@@ -320,6 +335,9 @@ const Stage1PackageList: React.FC<Stage1Props> = ({
               {selectedPackages.length === 1 ? "" : "s"} selected for CI/CD
               pipeline
             </p>
+            <div className="text-xs text-blue-600 mt-1">
+              Selected: {selectedPackages.join(", ")}
+            </div>
           </div>
         )}
 
@@ -336,11 +354,11 @@ const Stage1PackageList: React.FC<Stage1Props> = ({
             )}
           </div>
           <Button
-            onClick={onNext}
+            onClick={handleNext}
             disabled={!canProceed}
             className="flex items-center space-x-2"
           >
-            <span>Next: Select iFlows</span>
+            <span>Next: Select iFlows ({selectedPackages.length} package{selectedPackages.length === 1 ? '' : 's'} selected)</span>
             <ArrowRight className="w-4 h-4" />
           </Button>
         </div>

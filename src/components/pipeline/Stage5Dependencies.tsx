@@ -2,35 +2,55 @@ import React, { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Separator } from "@/components/ui/separator";
 import {
-  ArrowRight,
-  Link as LinkIcon,
-  CheckCircle,
-  AlertTriangle,
-  XCircle,
   GitBranch,
+  Package,
+  FileCode,
   Database,
+  Link,
+  RefreshCw,
+  ArrowRight,
+  ArrowLeft,
+  AlertCircle,
+  CheckCircle,
+  ExternalLink,
+  Layers,
+  Cpu,
   Globe,
+  Code,
+  FileText,
+  Server,
+  Network,
 } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
-interface Dependency {
-  id: string;
-  iflowId: string;
-  iflowName: string;
-  dependencyType: "system" | "service" | "iflow" | "data";
-  dependencyName: string;
-  description: string;
-  status: "available" | "unavailable" | "warning";
-  version: string;
-  endpoint?: string;
-  lastChecked: string;
+interface ResourceDependency {
+  Name: string;
+  ResourceType: string;
+  Description?: string;
+  Size?: number;
+  LastModified?: string;
 }
 
-interface DependencyGroup {
-  type: string;
-  icon: React.ComponentType<any>;
-  dependencies: Dependency[];
-  color: string;
+interface DependencyAnalysis {
+  value_mappings: ResourceDependency[];
+  groovy_scripts: ResourceDependency[];
+  message_mappings: ResourceDependency[];
+  external_services: ResourceDependency[];
+  process_direct: ResourceDependency[];
+  other: ResourceDependency[];
+}
+
+interface IFlowDependencies {
+  iflowId: string;
+  iflowName: string;
+  version: string;
+  resources: DependencyAnalysis;
+  totalResources: number;
+  criticalDependencies: number;
+  riskLevel: "low" | "medium" | "high";
 }
 
 interface Stage5Props {
@@ -46,434 +66,648 @@ const Stage5Dependencies: React.FC<Stage5Props> = ({
   onNext,
   onPrevious,
 }) => {
-  const [dependencies, setDependencies] = useState<Dependency[]>([]);
+  const [dependencyResults, setDependencyResults] = useState<
+    IFlowDependencies[]
+  >([]);
   const [loading, setLoading] = useState(true);
-  const [testingDependency, setTestingDependency] = useState<string | null>(
-    null,
-  );
-
-  // Mock dependencies data
-  const mockDependencies: Dependency[] = [
-    // System Dependencies
-    {
-      id: "dep-001",
-      iflowId: "iflow-001",
-      iflowName: "Customer Master Data Sync",
-      dependencyType: "system",
-      dependencyName: "SAP S/4HANA Cloud",
-      description: "Source system for customer master data",
-      status: "available",
-      version: "2024.1",
-      endpoint: "https://dev-s4hana.company.com",
-      lastChecked: "2024-01-20 16:30",
-    },
-    {
-      id: "dep-002",
-      iflowId: "iflow-001",
-      iflowName: "Customer Master Data Sync",
-      dependencyType: "system",
-      dependencyName: "CRM System",
-      description: "Target system for customer data synchronization",
-      status: "available",
-      version: "12.5",
-      endpoint: "https://dev-crm.company.com",
-      lastChecked: "2024-01-20 16:28",
-    },
-    {
-      id: "dep-003",
-      iflowId: "iflow-003",
-      iflowName: "Order Processing Workflow",
-      dependencyType: "service",
-      dependencyName: "Payment Gateway API",
-      description: "External payment processing service",
-      status: "warning",
-      version: "v2.1",
-      endpoint: "https://api.payment-provider.com",
-      lastChecked: "2024-01-20 16:25",
-    },
-    {
-      id: "dep-004",
-      iflowId: "iflow-003",
-      iflowName: "Order Processing Workflow",
-      dependencyType: "service",
-      dependencyName: "Shipping Calculator API",
-      description: "Calculate shipping costs and delivery times",
-      status: "available",
-      version: "v1.8",
-      endpoint: "https://api.shipping.company.com",
-      lastChecked: "2024-01-20 16:30",
-    },
-    {
-      id: "dep-005",
-      iflowId: "iflow-003",
-      iflowName: "Order Processing Workflow",
-      dependencyType: "iflow",
-      dependencyName: "Inventory Check Flow",
-      description: "Validates product availability before order processing",
-      status: "available",
-      version: "1.3.2",
-      lastChecked: "2024-01-20 16:29",
-    },
-    {
-      id: "dep-006",
-      iflowId: "iflow-006",
-      iflowName: "Financial Data Export",
-      dependencyType: "data",
-      dependencyName: "Financial Database",
-      description: "Source database for financial reporting data",
-      status: "available",
-      version: "PostgreSQL 14",
-      endpoint: "postgres://dev-finance-db.company.com:5432",
-      lastChecked: "2024-01-20 16:31",
-    },
-    {
-      id: "dep-007",
-      iflowId: "iflow-006",
-      iflowName: "Financial Data Export",
-      dependencyType: "service",
-      dependencyName: "Data Warehouse API",
-      description: "Target data warehouse for financial data",
-      status: "unavailable",
-      version: "v3.0",
-      endpoint: "https://api.datawarehouse.company.com",
-      lastChecked: "2024-01-20 16:20",
-    },
-    {
-      id: "dep-008",
-      iflowId: "iflow-007",
-      iflowName: "GL Account Mapping",
-      dependencyType: "data",
-      dependencyName: "Chart of Accounts",
-      description: "Master data for GL account mappings",
-      status: "warning",
-      version: "2024.Q1",
-      lastChecked: "2024-01-20 16:15",
-    },
-  ];
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Simulate dependency validation
-    setTimeout(() => {
-      const selectedIFlows = data.selectedIFlows || [];
-      const relevantDependencies = mockDependencies.filter((dep) =>
-        selectedIFlows.includes(dep.iflowId),
-      );
-
-      setDependencies(relevantDependencies);
-      setLoading(false);
-    }, 1500);
+    loadDependencies();
   }, [data.selectedIFlows]);
 
-  const testDependency = async (dependencyId: string) => {
-    setTestingDependency(dependencyId);
+  const loadDependencies = async () => {
+    setLoading(true);
+    setError(null);
 
-    // Simulate dependency test
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    try {
+      if (!data.selectedIFlows || data.selectedIFlows.length === 0) {
+        setError(
+          "No integration flows selected. Please go back and select iFlows.",
+        );
+        setLoading(false);
+        return;
+      }
 
-    // Update dependency status (simulate result)
-    setDependencies((prev) =>
-      prev.map((dep) =>
-        dep.id === dependencyId
-          ? {
-              ...dep,
-              status: Math.random() > 0.2 ? "available" : "warning",
-              lastChecked: new Date().toLocaleString(),
+      const dependencyPromises = data.selectedIFlows.map(
+        async (iflowId: string) => {
+          try {
+            // Find the iflow details from previous stage data
+            const iflowDetails = data.iflowDetails?.find(
+              (iflow: any) => iflow.id === iflowId,
+            ) || { id: iflowId, name: `iFlow ${iflowId}`, version: "1.0.0" };
+
+            const response = await fetch(
+              `/api/sap/iflows/${iflowId}/resources?version=${iflowDetails.version}`,
+            );
+
+            if (!response.ok) {
+              throw new Error(`Failed to fetch resources for ${iflowId}`);
             }
-          : dep,
-      ),
-    );
 
-    setTestingDependency(null);
-  };
+            const result = await response.json();
+            const resources: DependencyAnalysis = result.data;
 
-  const groupedDependencies: DependencyGroup[] = [
-    {
-      type: "External Systems",
-      icon: Database,
-      dependencies: dependencies.filter((d) => d.dependencyType === "system"),
-      color: "border-blue-500 bg-blue-50",
-    },
-    {
-      type: "External Services",
-      icon: Globe,
-      dependencies: dependencies.filter((d) => d.dependencyType === "service"),
-      color: "border-green-500 bg-green-50",
-    },
-    {
-      type: "Integration Flows",
-      icon: GitBranch,
-      dependencies: dependencies.filter((d) => d.dependencyType === "iflow"),
-      color: "border-purple-500 bg-purple-50",
-    },
-    {
-      type: "Data Sources",
-      icon: Database,
-      dependencies: dependencies.filter((d) => d.dependencyType === "data"),
-      color: "border-orange-500 bg-orange-50",
-    },
-  ].filter((group) => group.dependencies.length > 0);
+            // Calculate total resources and critical dependencies
+            const totalResources = Object.values(resources).reduce(
+              (sum, arr) => sum + (Array.isArray(arr) ? arr.length : 0),
+              0,
+            );
 
-  const handleContinue = () => {
-    const dependencySummary = {
-      totalDependencies: dependencies.length,
-      availableDependencies: dependencies.filter(
-        (d) => d.status === "available",
-      ).length,
-      warningDependencies: dependencies.filter((d) => d.status === "warning")
-        .length,
-      unavailableDependencies: dependencies.filter(
-        (d) => d.status === "unavailable",
-      ).length,
-      dependencyGroups: groupedDependencies.map((group) => ({
-        type: group.type,
-        count: group.dependencies.length,
-        status: group.dependencies.every((d) => d.status === "available")
-          ? "healthy"
-          : "issues",
-      })),
-    };
+            const criticalDependencies =
+              resources.external_services.length +
+              resources.process_direct.length +
+              resources.value_mappings.length;
 
-    onComplete({ dependencies: dependencySummary });
-    onNext();
-  };
+            // Determine risk level
+            let riskLevel: "low" | "medium" | "high" = "low";
+            if (criticalDependencies > 5) riskLevel = "high";
+            else if (criticalDependencies > 2) riskLevel = "medium";
 
-  const getStatusIcon = (status: string, isLoading = false) => {
-    if (isLoading) {
-      return (
-        <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+            return {
+              iflowId,
+              iflowName: iflowDetails.name,
+              version: iflowDetails.version,
+              resources,
+              totalResources,
+              criticalDependencies,
+              riskLevel,
+            };
+          } catch (error) {
+            console.error(`Failed to load dependencies for ${iflowId}:`, error);
+            return {
+              iflowId,
+              iflowName: `iFlow ${iflowId}`,
+              version: "1.0.0",
+              resources: {
+                value_mappings: [],
+                groovy_scripts: [],
+                message_mappings: [],
+                external_services: [],
+                process_direct: [],
+                other: [],
+              },
+              totalResources: 0,
+              criticalDependencies: 0,
+              riskLevel: "low" as const,
+            };
+          }
+        },
       );
-    }
 
-    switch (status) {
-      case "available":
-        return <CheckCircle className="w-4 h-4 text-green-500" />;
-      case "warning":
-        return <AlertTriangle className="w-4 h-4 text-yellow-500" />;
-      case "unavailable":
-        return <XCircle className="w-4 h-4 text-red-500" />;
-      default:
-        return <AlertTriangle className="w-4 h-4 text-gray-500" />;
+      const results = await Promise.all(dependencyPromises);
+      setDependencyResults(results);
+    } catch (error) {
+      console.error("Failed to load dependencies:", error);
+      setError("Failed to load dependency analysis");
+    } finally {
+      setLoading(false);
     }
   };
 
-  const getStatusBadge = (status: string) => {
-    const variants = {
-      available: "bg-green-100 text-green-800",
-      warning: "bg-yellow-100 text-yellow-800",
-      unavailable: "bg-red-100 text-red-800",
-    };
-    return (
-      <Badge className={variants[status] || "bg-gray-100 text-gray-800"}>
-        {status}
-      </Badge>
+  const getResourceIcon = (type: string) => {
+    switch (type) {
+      case "value_mappings":
+        return <Database className="w-4 h-4 text-blue-500" />;
+      case "groovy_scripts":
+        return <Code className="w-4 h-4 text-green-500" />;
+      case "message_mappings":
+        return <FileText className="w-4 h-4 text-purple-500" />;
+      case "external_services":
+        return <Globe className="w-4 h-4 text-orange-500" />;
+      case "process_direct":
+        return <Network className="w-4 h-4 text-red-500" />;
+      default:
+        return <FileCode className="w-4 h-4 text-gray-500" />;
+    }
+  };
+
+  const getResourceTitle = (type: string) => {
+    switch (type) {
+      case "value_mappings":
+        return "Value Mappings";
+      case "groovy_scripts":
+        return "Groovy Scripts";
+      case "message_mappings":
+        return "Message Mappings";
+      case "external_services":
+        return "External Services";
+      case "process_direct":
+        return "Process Direct";
+      default:
+        return "Other Resources";
+    }
+  };
+
+  const getRiskBadgeColor = (risk: string) => {
+    switch (risk) {
+      case "high":
+        return "bg-red-100 text-red-800";
+      case "medium":
+        return "bg-yellow-100 text-yellow-800";
+      default:
+        return "bg-green-100 text-green-800";
+    }
+  };
+
+  const getTotalResources = () => {
+    return dependencyResults.reduce(
+      (sum, result) => sum + result.totalResources,
+      0,
     );
+  };
+
+  const getTotalCriticalDependencies = () => {
+    return dependencyResults.reduce(
+      (sum, result) => sum + result.criticalDependencies,
+      0,
+    );
+  };
+
+  const getHighRiskIFlows = () => {
+    return dependencyResults.filter((result) => result.riskLevel === "high");
   };
 
   if (loading) {
     return (
-      <div className="space-y-6">
-        <div className="bg-gradient-to-r from-red-50 to-orange-50 rounded-xl p-6 border border-red-200">
-          <div className="flex items-center space-x-3 mb-4">
-            <LinkIcon className="w-6 h-6 text-red-600 animate-pulse" />
-            <h3 className="text-xl font-bold text-red-900">
-              Dependency Validation
-            </h3>
-          </div>
-          <p className="text-red-700 mb-4">
-            Validating interface dependencies and external system
-            connectivity...
-          </p>
-        </div>
-
-        <Card>
-          <CardContent className="p-12 text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-600 mx-auto mb-4"></div>
-            <p className="text-lg text-gray-600">Checking dependencies...</p>
-            <p className="text-sm text-gray-500 mt-2">
-              Testing connectivity and availability
-            </p>
-          </CardContent>
-        </Card>
-      </div>
+      <Card className="w-full">
+        <CardContent className="flex items-center justify-center p-8">
+          <RefreshCw className="w-8 h-8 animate-spin text-blue-500 mr-3" />
+          <span className="text-lg">Analyzing dependencies...</span>
+        </CardContent>
+      </Card>
     );
   }
 
-  const availableCount = dependencies.filter(
-    (d) => d.status === "available",
-  ).length;
-  const warningCount = dependencies.filter(
-    (d) => d.status === "warning",
-  ).length;
-  const unavailableCount = dependencies.filter(
-    (d) => d.status === "unavailable",
-  ).length;
-
-  return (
-    <div className="space-y-6">
-      {/* Header Info */}
-      <div className="bg-gradient-to-r from-red-50 to-orange-50 rounded-xl p-6 border border-red-200">
-        <div className="flex items-center space-x-3 mb-4">
-          <LinkIcon className="w-6 h-6 text-red-600" />
-          <h3 className="text-xl font-bold text-red-900">
-            Dependency Validation
-          </h3>
-        </div>
-        <p className="text-red-700 mb-4">
-          Validation results for interface dependencies and external system
-          connectivity.
-        </p>
-        <div className="flex items-center space-x-4 text-sm text-red-600">
-          <span>🔗 Total Dependencies: {dependencies.length}</span>
-          <span>✅ Available: {availableCount}</span>
-          <span>⚠️ Warnings: {warningCount}</span>
-          <span>❌ Unavailable: {unavailableCount}</span>
-        </div>
-      </div>
-
-      {/* Overall Summary */}
-      <Card className="border-l-4 border-l-red-500">
-        <CardHeader>
-          <CardTitle className="flex items-center">
-            <LinkIcon className="w-5 h-5 mr-2" />
-            Dependency Summary
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <div className="text-center">
-              <div className="text-3xl font-bold text-gray-900">
-                {dependencies.length}
-              </div>
-              <div className="text-sm text-gray-600">Total Dependencies</div>
-            </div>
-            <div className="text-center">
-              <div className="text-3xl font-bold text-green-600">
-                {availableCount}
-              </div>
-              <div className="text-sm text-gray-600">Available</div>
-            </div>
-            <div className="text-center">
-              <div className="text-3xl font-bold text-yellow-600">
-                {warningCount}
-              </div>
-              <div className="text-sm text-gray-600">Warnings</div>
-            </div>
-            <div className="text-center">
-              <div className="text-3xl font-bold text-red-600">
-                {unavailableCount}
-              </div>
-              <div className="text-sm text-gray-600">Unavailable</div>
-            </div>
+  if (error) {
+    return (
+      <Card className="w-full border-red-200">
+        <CardContent className="flex items-center justify-center p-8">
+          <AlertCircle className="w-8 h-8 text-red-500 mr-3" />
+          <div>
+            <p className="text-lg font-medium text-red-800">{error}</p>
+            <Button onClick={loadDependencies} className="mt-4">
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Retry
+            </Button>
           </div>
         </CardContent>
       </Card>
+    );
+  }
 
-      {/* Grouped Dependencies */}
-      {groupedDependencies.map((group) => {
-        const Icon = group.icon;
-        return (
-          <Card key={group.type} className={`border-l-4 ${group.color}`}>
-            <CardHeader>
-              <CardTitle className="flex items-center">
-                <Icon className="w-5 h-5 mr-2" />
-                {group.type}
-                <Badge variant="outline" className="ml-2">
-                  {group.dependencies.length} dependencies
-                </Badge>
+  const highRiskIFlows = getHighRiskIFlows();
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <Card className="border-0 shadow-lg bg-gradient-to-r from-orange-50 to-red-50">
+        <CardHeader>
+          <div className="flex items-center space-x-4">
+            <div className="p-3 bg-orange-100 rounded-full">
+              <GitBranch className="w-6 h-6 text-orange-600" />
+            </div>
+            <div>
+              <CardTitle className="text-2xl text-orange-800">
+                Dependencies Analysis
               </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {group.dependencies.map((dependency) => (
-                  <div
-                    key={dependency.id}
-                    className="flex items-center justify-between p-4 bg-white rounded-lg border shadow-sm"
-                  >
-                    <div className="flex-1">
-                      <div className="flex items-center space-x-3 mb-2">
-                        {getStatusIcon(
-                          dependency.status,
-                          testingDependency === dependency.id,
-                        )}
-                        <h4 className="font-semibold text-gray-900">
-                          {dependency.dependencyName}
-                        </h4>
-                        {getStatusBadge(dependency.status)}
-                      </div>
+              <p className="text-orange-600 mt-1">
+                Analyze resources, dependencies, and external services used by
+                your integration flows.
+              </p>
+            </div>
+          </div>
+        </CardHeader>
+      </Card>
 
-                      <p className="text-sm text-gray-600 mb-2">
-                        {dependency.description}
-                      </p>
-
-                      <div className="text-xs text-gray-500 space-y-1">
-                        <div>Version: {dependency.version}</div>
-                        {dependency.endpoint && (
-                          <div>Endpoint: {dependency.endpoint}</div>
-                        )}
-                        <div>Last checked: {dependency.lastChecked}</div>
-                        <div>Used by: {dependency.iflowName}</div>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col space-y-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => testDependency(dependency.id)}
-                        disabled={testingDependency === dependency.id}
-                      >
-                        {testingDependency === dependency.id
-                          ? "Testing..."
-                          : "Test"}
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        );
-      })}
-
-      {/* Critical Dependencies Warning */}
-      {unavailableCount > 0 && (
-        <Card className="border-red-200 bg-red-50">
-          <CardContent className="p-6">
-            <div className="flex items-start space-x-3">
-              <XCircle className="w-6 h-6 text-red-600 mt-0.5" />
+      {/* Summary Stats */}
+      <div className="grid grid-cols-4 gap-4">
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center space-x-3">
+              <Layers className="w-8 h-8 text-blue-500" />
               <div>
-                <h3 className="font-medium text-red-900 mb-2">
-                  Critical Dependencies Unavailable
-                </h3>
-                <p className="text-sm text-red-700">
-                  {unavailableCount} critical dependencies are currently
-                  unavailable. These must be resolved before proceeding with
-                  deployment to prevent integration failures.
+                <p className="text-sm text-gray-600">Total Resources</p>
+                <p className="text-2xl font-bold text-blue-600">
+                  {getTotalResources()}
                 </p>
               </div>
             </div>
           </CardContent>
         </Card>
+
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center space-x-3">
+              <AlertCircle className="w-8 h-8 text-orange-500" />
+              <div>
+                <p className="text-sm text-gray-600">Critical Dependencies</p>
+                <p className="text-2xl font-bold text-orange-600">
+                  {getTotalCriticalDependencies()}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center space-x-3">
+              <CheckCircle className="w-8 h-8 text-green-500" />
+              <div>
+                <p className="text-sm text-gray-600">Low Risk iFlows</p>
+                <p className="text-2xl font-bold text-green-600">
+                  {
+                    dependencyResults.filter((r) => r.riskLevel === "low")
+                      .length
+                  }
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center space-x-3">
+              <AlertCircle className="w-8 h-8 text-red-500" />
+              <div>
+                <p className="text-sm text-gray-600">High Risk iFlows</p>
+                <p className="text-2xl font-bold text-red-600">
+                  {highRiskIFlows.length}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* High Risk Alert */}
+      {highRiskIFlows.length > 0 && (
+        <Alert className="border-red-200 bg-red-50">
+          <AlertCircle className="h-4 w-4 text-red-600" />
+          <AlertTitle className="text-red-800">
+            High Dependency Risk Detected
+          </AlertTitle>
+          <AlertDescription className="text-red-700">
+            {highRiskIFlows.length} integration flow(s) have high dependency
+            risk due to multiple external dependencies. Please review these
+            carefully before deployment.
+            <div className="mt-2">
+              <strong>High-risk iFlows:</strong>{" "}
+              {highRiskIFlows.map((iflow) => iflow.iflowName).join(", ")}
+            </div>
+          </AlertDescription>
+        </Alert>
       )}
 
-      {/* Navigation */}
-      <div className="flex justify-between">
+      {/* Dependency Analysis */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center space-x-2">
+            <GitBranch className="w-5 h-5" />
+            <span>iFlow Dependency Analysis</span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Tabs defaultValue={dependencyResults[0]?.iflowId} className="w-full">
+            <TabsList
+              className="grid w-full"
+              style={{
+                gridTemplateColumns: `repeat(${dependencyResults.length}, 1fr)`,
+              }}
+            >
+              {dependencyResults.map((result) => (
+                <TabsTrigger
+                  key={result.iflowId}
+                  value={result.iflowId}
+                  className="text-sm flex flex-col items-center p-2"
+                >
+                  <span className="truncate">{result.iflowName}</span>
+                  <div className="flex items-center space-x-2 mt-1">
+                    <Badge className={getRiskBadgeColor(result.riskLevel)}>
+                      {result.riskLevel}
+                    </Badge>
+                    <Badge variant="secondary">{result.totalResources}</Badge>
+                  </div>
+                </TabsTrigger>
+              ))}
+            </TabsList>
+
+            {dependencyResults.map((result) => (
+              <TabsContent
+                key={result.iflowId}
+                value={result.iflowId}
+                className="space-y-4"
+              >
+                {/* iFlow Summary */}
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className="font-medium text-gray-900 mb-1">
+                        {result.iflowName}
+                      </h3>
+                      <div className="grid grid-cols-2 gap-4 text-sm text-gray-600">
+                        <p>
+                          <strong>ID:</strong> {result.iflowId}
+                        </p>
+                        <p>
+                          <strong>Version:</strong> {result.version}
+                        </p>
+                        <p>
+                          <strong>Total Resources:</strong>{" "}
+                          {result.totalResources}
+                        </p>
+                        <p>
+                          <strong>Critical Dependencies:</strong>{" "}
+                          {result.criticalDependencies}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-center">
+                      <Badge
+                        className={`text-lg px-4 py-2 ${getRiskBadgeColor(result.riskLevel)}`}
+                      >
+                        {result.riskLevel.toUpperCase()} RISK
+                      </Badge>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Resource Categories */}
+                <div className="grid grid-cols-2 gap-4">
+                  {Object.entries(result.resources).map(([type, resources]) => (
+                    <Card key={type} className="border">
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-sm flex items-center space-x-2">
+                          {getResourceIcon(type)}
+                          <span>{getResourceTitle(type)}</span>
+                          <Badge variant="secondary">{resources.length}</Badge>
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="pt-0">
+                        {resources.length === 0 ? (
+                          <p className="text-sm text-gray-500 italic">
+                            No {getResourceTitle(type).toLowerCase()} found
+                          </p>
+                        ) : (
+                          <div className="space-y-2 max-h-40 overflow-y-auto">
+                            {resources.map((resource, index) => (
+                              <div
+                                key={index}
+                                className="p-2 bg-gray-50 rounded text-sm"
+                              >
+                                <div className="font-medium truncate">
+                                  {resource.Name}
+                                </div>
+                                <div className="text-xs text-gray-600">
+                                  {resource.ResourceType}
+                                  {resource.Size && (
+                                    <span className="ml-2">
+                                      • {Math.round(resource.Size / 1024)}KB
+                                    </span>
+                                  )}
+                                </div>
+                                {resource.Description && (
+                                  <div className="text-xs text-gray-500 truncate mt-1">
+                                    {resource.Description}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+
+                {/* Critical Dependencies Details */}
+                {result.criticalDependencies > 0 && (
+                  <Card className="border-orange-200 bg-orange-50">
+                    <CardHeader>
+                      <CardTitle className="text-orange-800 flex items-center space-x-2">
+                        <AlertCircle className="w-5 h-5" />
+                        <span>Critical Dependencies</span>
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-3">
+                        {result.resources.external_services.length > 0 && (
+                          <div>
+                            <h4 className="font-medium text-orange-900 mb-2 flex items-center space-x-2">
+                              <ExternalLink className="w-4 h-4" />
+                              <span>
+                                External Services (
+                                {result.resources.external_services.length})
+                              </span>
+                            </h4>
+                            <div className="pl-6 space-y-1">
+                              {result.resources.external_services.map(
+                                (service, index) => (
+                                  <p
+                                    key={index}
+                                    className="text-sm text-orange-700"
+                                  >
+                                    • {service.Name}
+                                  </p>
+                                ),
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {result.resources.process_direct.length > 0 && (
+                          <div>
+                            <h4 className="font-medium text-orange-900 mb-2 flex items-center space-x-2">
+                              <Network className="w-4 h-4" />
+                              <span>
+                                Process Direct Connections (
+                                {result.resources.process_direct.length})
+                              </span>
+                            </h4>
+                            <div className="pl-6 space-y-1">
+                              {result.resources.process_direct.map(
+                                (connection, index) => (
+                                  <p
+                                    key={index}
+                                    className="text-sm text-orange-700"
+                                  >
+                                    • {connection.Name}
+                                  </p>
+                                ),
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {result.resources.value_mappings.length > 0 && (
+                          <div>
+                            <h4 className="font-medium text-orange-900 mb-2 flex items-center space-x-2">
+                              <Database className="w-4 h-4" />
+                              <span>
+                                Value Mappings (
+                                {result.resources.value_mappings.length})
+                              </span>
+                            </h4>
+                            <div className="pl-6 space-y-1">
+                              {result.resources.value_mappings.map(
+                                (mapping, index) => (
+                                  <p
+                                    key={index}
+                                    className="text-sm text-orange-700"
+                                  >
+                                    • {mapping.Name}
+                                  </p>
+                                ),
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </TabsContent>
+            ))}
+          </Tabs>
+        </CardContent>
+      </Card>
+
+      {/* Dependencies Summary */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Dependencies Summary</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <h4 className="font-medium mb-2">Dependency Breakdown</h4>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span>Total iFlows:</span>
+                    <span className="font-medium">
+                      {dependencyResults.length}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Total Resources:</span>
+                    <span className="font-medium">{getTotalResources()}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Critical Dependencies:</span>
+                    <span className="font-medium text-orange-600">
+                      {getTotalCriticalDependencies()}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <h4 className="font-medium mb-2">Risk Assessment</h4>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm">Low Risk:</span>
+                    <Badge className="bg-green-100 text-green-800">
+                      {
+                        dependencyResults.filter((r) => r.riskLevel === "low")
+                          .length
+                      }{" "}
+                      iFlows
+                    </Badge>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm">Medium Risk:</span>
+                    <Badge className="bg-yellow-100 text-yellow-800">
+                      {
+                        dependencyResults.filter(
+                          (r) => r.riskLevel === "medium",
+                        ).length
+                      }{" "}
+                      iFlows
+                    </Badge>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm">High Risk:</span>
+                    <Badge className="bg-red-100 text-red-800">
+                      {highRiskIFlows.length} iFlows
+                    </Badge>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {highRiskIFlows.length > 0 && (
+              <Alert className="border-yellow-200 bg-yellow-50">
+                <AlertCircle className="h-4 w-4 text-yellow-600" />
+                <AlertTitle className="text-yellow-800">
+                  Deployment Considerations
+                </AlertTitle>
+                <AlertDescription className="text-yellow-700">
+                  <p className="mb-2">
+                    High-risk iFlows require careful attention during
+                    deployment:
+                  </p>
+                  <ul className="list-disc list-inside space-y-1 text-sm">
+                    <li>Ensure all external services are accessible</li>
+                    <li>
+                      Verify value mappings are deployed to target environment
+                    </li>
+                    <li>Check process direct connections are available</li>
+                    <li>Validate groovy scripts compatibility</li>
+                  </ul>
+                </AlertDescription>
+              </Alert>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Action Buttons */}
+      <div className="flex justify-between pt-4">
         <Button
-          variant="outline"
           onClick={onPrevious}
-          className="flex items-center"
+          variant="outline"
+          className="flex items-center space-x-2"
         >
-          <ArrowRight className="w-4 h-4 mr-2 rotate-180" />
-          Back to Validation
+          <ArrowLeft className="w-4 h-4" />
+          <span>Previous: Design Validation</span>
         </Button>
-        <Button
-          onClick={handleContinue}
-          className="flex items-center"
-          disabled={unavailableCount > 0}
-        >
-          Continue to Upload
-          <ArrowRight className="w-4 h-4 ml-2" />
-        </Button>
+
+        <div className="flex space-x-4">
+          <Button
+            onClick={loadDependencies}
+            variant="outline"
+            className="flex items-center space-x-2"
+          >
+            <RefreshCw className="w-4 h-4" />
+            <span>Refresh Analysis</span>
+          </Button>
+
+          <Button
+            onClick={() => {
+              onComplete({
+                dependencies: {
+                  results: dependencyResults,
+                  totalResources: getTotalResources(),
+                  criticalDependencies: getTotalCriticalDependencies(),
+                  highRiskIFlows: highRiskIFlows.map((iflow) => ({
+                    id: iflow.iflowId,
+                    name: iflow.iflowName,
+                    risk: iflow.riskLevel,
+                    criticalCount: iflow.criticalDependencies,
+                  })),
+                },
+              });
+              onNext();
+            }}
+            className="flex items-center space-x-2"
+          >
+            <span>Next: Upload Artifacts</span>
+            <ArrowRight className="w-4 h-4" />
+          </Button>
+        </div>
       </div>
     </div>
   );

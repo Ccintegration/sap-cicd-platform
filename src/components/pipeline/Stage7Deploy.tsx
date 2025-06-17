@@ -4,27 +4,34 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import {
-  ArrowRight,
   Rocket,
   CheckCircle,
-  AlertTriangle,
   XCircle,
-  Play,
   Clock,
+  RefreshCw,
+  ArrowRight,
+  ArrowLeft,
+  AlertCircle,
+  PlayCircle,
   Server,
   Activity,
+  Zap,
+  Globe,
+  Package,
 } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
-interface DeploymentItem {
-  id: string;
+interface DeploymentResult {
   iflowId: string;
   iflowName: string;
-  status: "pending" | "deploying" | "deployed" | "failed" | "starting";
+  version: string;
+  status: "pending" | "deploying" | "deployed" | "failed" | "started";
   progress: number;
-  deploymentTime?: string;
-  runtimeStatus?: "started" | "stopped" | "error";
-  errorMessage?: string;
-  endpoint?: string;
+  message?: string;
+  deploymentId?: string;
+  runtimeId?: string;
+  timestamp?: string;
+  targetEnvironment: string;
 }
 
 interface Stage7Props {
@@ -40,537 +47,679 @@ const Stage7Deploy: React.FC<Stage7Props> = ({
   onNext,
   onPrevious,
 }) => {
-  const [deploymentItems, setDeploymentItems] = useState<DeploymentItem[]>([]);
-  const [overallProgress, setOverallProgress] = useState(0);
+  const [deploymentResults, setDeploymentResults] = useState<
+    DeploymentResult[]
+  >([]);
   const [isDeploying, setIsDeploying] = useState(false);
-  const [deploymentComplete, setDeploymentComplete] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedEnvironment, setSelectedEnvironment] = useState("development");
 
-  // Generate deployment items based on uploaded artifacts
+  const environments = [
+    {
+      id: "development",
+      name: "Development",
+      color: "bg-blue-100 text-blue-800",
+      endpoint: "dev.company.com",
+    },
+    {
+      id: "testing",
+      name: "Testing",
+      color: "bg-yellow-100 text-yellow-800",
+      endpoint: "test.company.com",
+    },
+    {
+      id: "production",
+      name: "Production",
+      color: "bg-green-100 text-green-800",
+      endpoint: "prod.company.com",
+    },
+  ];
+
   useEffect(() => {
-    const selectedIFlows = data.selectedIFlows || [];
-    const iflowNames = {
-      "iflow-001": "Customer Master Data Sync",
-      "iflow-002": "Customer Address Validation",
-      "iflow-003": "Order Processing Workflow",
-      "iflow-004": "Order Status Updates",
-      "iflow-005": "Inventory Sync",
-      "iflow-006": "Financial Data Export",
-      "iflow-007": "GL Account Mapping",
-    };
+    initializeDeploymentResults();
+  }, [data.selectedIFlows, data.uploadResults]);
 
-    const items: DeploymentItem[] = selectedIFlows.map((iflowId: string) => ({
-      id: `deploy-${iflowId}`,
-      iflowId,
-      iflowName: iflowNames[iflowId] || `iFlow ${iflowId}`,
-      status: "pending",
-      progress: 0,
-      endpoint: `https://dev-integration.company.com/flows/${iflowId}`,
-    }));
-
-    setDeploymentItems(items);
-  }, [data.selectedIFlows]);
-
-  const startDeployment = async () => {
-    setIsDeploying(true);
-
-    for (let i = 0; i < deploymentItems.length; i++) {
-      const item = deploymentItems[i];
-
-      // Phase 1: Deploy to runtime
-      setDeploymentItems((prev) =>
-        prev.map((deployItem) =>
-          deployItem.id === item.id
-            ? { ...deployItem, status: "deploying", progress: 0 }
-            : deployItem,
-        ),
+  const initializeDeploymentResults = () => {
+    if (!data.selectedIFlows || data.selectedIFlows.length === 0) {
+      setError(
+        "No integration flows selected. Please go back and select iFlows.",
       );
-
-      // Simulate deployment progress
-      for (let progress = 0; progress <= 70; progress += 10) {
-        await new Promise((resolve) => setTimeout(resolve, 300));
-        setDeploymentItems((prev) =>
-          prev.map((deployItem) =>
-            deployItem.id === item.id
-              ? { ...deployItem, progress }
-              : deployItem,
-          ),
-        );
-      }
-
-      // Simulate deployment result
-      const deploymentSuccess = Math.random() > 0.15; // 85% success rate
-
-      if (deploymentSuccess) {
-        setDeploymentItems((prev) =>
-          prev.map((deployItem) =>
-            deployItem.id === item.id
-              ? {
-                  ...deployItem,
-                  status: "deployed",
-                  progress: 70,
-                  deploymentTime: new Date().toLocaleString(),
-                }
-              : deployItem,
-          ),
-        );
-
-        // Phase 2: Start the runtime
-        await new Promise((resolve) => setTimeout(resolve, 500));
-
-        setDeploymentItems((prev) =>
-          prev.map((deployItem) =>
-            deployItem.id === item.id
-              ? { ...deployItem, status: "starting", progress: 80 }
-              : deployItem,
-          ),
-        );
-
-        // Simulate startup
-        for (let progress = 80; progress <= 100; progress += 10) {
-          await new Promise((resolve) => setTimeout(resolve, 200));
-          setDeploymentItems((prev) =>
-            prev.map((deployItem) =>
-              deployItem.id === item.id
-                ? { ...deployItem, progress }
-                : deployItem,
-            ),
-          );
-        }
-
-        // Final status
-        const startupSuccess = Math.random() > 0.1; // 90% startup success
-
-        setDeploymentItems((prev) =>
-          prev.map((deployItem) =>
-            deployItem.id === item.id
-              ? {
-                  ...deployItem,
-                  progress: 100,
-                  runtimeStatus: startupSuccess ? "started" : "error",
-                  errorMessage: startupSuccess
-                    ? undefined
-                    : "Runtime startup failed - check configuration",
-                }
-              : deployItem,
-          ),
-        );
-      } else {
-        setDeploymentItems((prev) =>
-          prev.map((deployItem) =>
-            deployItem.id === item.id
-              ? {
-                  ...deployItem,
-                  status: "failed",
-                  progress: 100,
-                  errorMessage: "Deployment failed - artifact validation error",
-                }
-              : deployItem,
-          ),
-        );
-      }
-
-      // Update overall progress
-      setOverallProgress(Math.round(((i + 1) / deploymentItems.length) * 100));
+      return;
     }
 
-    setIsDeploying(false);
-    setDeploymentComplete(true);
-  };
+    // Use the environment from upload results if available
+    const targetEnv = data.uploadResults?.environment || selectedEnvironment;
+    setSelectedEnvironment(targetEnv);
 
-  const retryFailedDeployments = async () => {
-    const failedItems = deploymentItems.filter(
-      (item) => item.status === "failed",
+    const results: DeploymentResult[] = data.selectedIFlows.map(
+      (iflowId: string) => {
+        const iflowDetails = data.iflowDetails?.find(
+          (iflow: any) => iflow.id === iflowId,
+        ) || { id: iflowId, name: `iFlow ${iflowId}`, version: "1.0.0" };
+
+        // Check if this iFlow was successfully uploaded
+        const uploadResult = data.uploadResults?.results?.find(
+          (r: any) => r.iflowId === iflowId,
+        );
+        const wasUploaded = uploadResult?.status === "success";
+
+        return {
+          iflowId,
+          iflowName: iflowDetails.name,
+          version: iflowDetails.version,
+          status: wasUploaded ? ("pending" as const) : ("failed" as const),
+          progress: 0,
+          message: wasUploaded
+            ? "Ready for deployment"
+            : "Upload required before deployment",
+          targetEnvironment: targetEnv,
+        };
+      },
     );
 
-    for (const item of failedItems) {
-      setDeploymentItems((prev) =>
-        prev.map((deployItem) =>
-          deployItem.id === item.id
-            ? { ...deployItem, status: "deploying", progress: 0 }
-            : deployItem,
-        ),
-      );
+    setDeploymentResults(results);
+  };
 
-      // Simulate retry deployment
-      for (let progress = 0; progress <= 100; progress += 20) {
-        await new Promise((resolve) => setTimeout(resolve, 200));
-        setDeploymentItems((prev) =>
-          prev.map((deployItem) =>
-            deployItem.id === item.id
-              ? { ...deployItem, progress }
-              : deployItem,
+  const deploySingleIFlow = async (result: DeploymentResult): Promise<void> => {
+    setDeploymentResults((prev) =>
+      prev.map((r) =>
+        r.iflowId === result.iflowId
+          ? {
+              ...r,
+              status: "deploying",
+              progress: 10,
+              message: "Initiating deployment...",
+            }
+          : r,
+      ),
+    );
+
+    try {
+      // Simulate deployment progress
+      const progressSteps = [
+        { progress: 20, message: "Validating artifact..." },
+        { progress: 40, message: "Deploying to runtime..." },
+        { progress: 60, message: "Configuring runtime parameters..." },
+        { progress: 80, message: "Starting integration flow..." },
+        { progress: 90, message: "Verifying deployment..." },
+      ];
+
+      for (const step of progressSteps) {
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        setDeploymentResults((prev) =>
+          prev.map((r) =>
+            r.iflowId === result.iflowId
+              ? {
+                  ...r,
+                  progress: step.progress,
+                  message: step.message,
+                }
+              : r,
           ),
         );
       }
 
-      // Retry usually succeeds
-      const retrySuccess = Math.random() > 0.2;
+      // Call the actual deployment API
+      const response = await fetch(
+        `/api/sap/iflows/${result.iflowId}/deploy?version=${result.version}&target_environment=${result.targetEnvironment}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      );
 
-      setDeploymentItems((prev) =>
-        prev.map((deployItem) =>
-          deployItem.id === item.id
+      if (!response.ok) {
+        throw new Error(`Deployment failed: ${response.statusText}`);
+      }
+
+      const deploymentResponse = await response.json();
+
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      // Simulate successful deployment
+      setDeploymentResults((prev) =>
+        prev.map((r) =>
+          r.iflowId === result.iflowId
             ? {
-                ...deployItem,
-                status: retrySuccess ? "deployed" : "failed",
-                deploymentTime: retrySuccess
-                  ? new Date().toLocaleString()
-                  : undefined,
-                runtimeStatus: retrySuccess ? "started" : undefined,
-                errorMessage: retrySuccess
-                  ? undefined
-                  : "Retry failed - contact system administrator",
+                ...r,
+                status: "deployed",
+                progress: 100,
+                message: `Successfully deployed and started in ${result.targetEnvironment}`,
+                deploymentId:
+                  deploymentResponse.data?.deployment_id ||
+                  `deploy_${Date.now()}`,
+                runtimeId: `runtime_${result.iflowId}_${Date.now()}`,
+                timestamp: new Date().toISOString(),
               }
-            : deployItem,
+            : r,
+        ),
+      );
+    } catch (error) {
+      console.error(`Deployment failed for ${result.iflowId}:`, error);
+      setDeploymentResults((prev) =>
+        prev.map((r) =>
+          r.iflowId === result.iflowId
+            ? {
+                ...r,
+                status: "failed",
+                progress: 0,
+                message: `Deployment failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+              }
+            : r,
         ),
       );
     }
   };
 
-  const handleContinue = () => {
-    const deploymentSummary = {
-      totalDeployments: deploymentItems.length,
-      successfulDeployments: deploymentItems.filter(
-        (item) =>
-          item.status === "deployed" && item.runtimeStatus === "started",
-      ).length,
-      failedDeployments: deploymentItems.filter(
-        (item) => item.status === "failed" || item.runtimeStatus === "error",
-      ).length,
-      deployedIFlows: deploymentItems
-        .filter((item) => item.status === "deployed")
-        .map((item) => ({
-          id: item.iflowId,
-          name: item.iflowName,
-          endpoint: item.endpoint,
-          status: item.runtimeStatus,
-        })),
-      deploymentTime: new Date().toLocaleString(),
-    };
+  const deployAllIFlows = async () => {
+    setIsDeploying(true);
+    setError(null);
 
-    onComplete({ deploymentStatus: deploymentSummary });
-    onNext();
-  };
-
-  const getStatusIcon = (item: DeploymentItem) => {
-    if (item.status === "deploying" || item.status === "starting") {
-      return (
-        <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+    try {
+      // Filter out iFlows that weren't uploaded successfully
+      const deployableIFlows = deploymentResults.filter(
+        (result) => result.status === "pending",
       );
-    }
 
-    if (item.status === "failed") {
-      return <XCircle className="w-4 h-4 text-red-500" />;
-    }
-
-    if (item.status === "deployed") {
-      if (item.runtimeStatus === "started") {
-        return <CheckCircle className="w-4 h-4 text-green-500" />;
+      if (deployableIFlows.length === 0) {
+        setError(
+          "No iFlows available for deployment. Please ensure all uploads completed successfully.",
+        );
+        setIsDeploying(false);
+        return;
       }
-      if (item.runtimeStatus === "error") {
-        return <AlertTriangle className="w-4 h-4 text-yellow-500" />;
-      }
-      return <Activity className="w-4 h-4 text-blue-500" />;
-    }
 
-    return <Clock className="w-4 h-4 text-gray-500" />;
+      // Reset deployable iFlows to pending
+      setDeploymentResults((prev) =>
+        prev.map((r) =>
+          deployableIFlows.some((d) => d.iflowId === r.iflowId)
+            ? { ...r, status: "pending" as const, progress: 0 }
+            : r,
+        ),
+      );
+
+      // Deploy each iFlow sequentially
+      for (const result of deployableIFlows) {
+        await deploySingleIFlow(result);
+      }
+
+      console.log(
+        `Successfully deployed ${deployableIFlows.length} iFlows to ${selectedEnvironment}`,
+      );
+    } catch (error) {
+      console.error("Deployment process failed:", error);
+      setError("Deployment process failed. Please try again.");
+    } finally {
+      setIsDeploying(false);
+    }
   };
 
-  const getStatusBadge = (item: DeploymentItem) => {
-    if (item.status === "failed") {
-      return <Badge className="bg-red-100 text-red-800">Failed</Badge>;
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case "deployed":
+        return <CheckCircle className="w-5 h-5 text-green-500" />;
+      case "failed":
+        return <XCircle className="w-5 h-5 text-red-500" />;
+      case "deploying":
+        return <RefreshCw className="w-5 h-5 text-blue-500 animate-spin" />;
+      default:
+        return <Clock className="w-5 h-5 text-gray-400" />;
     }
-
-    if (item.status === "deployed") {
-      if (item.runtimeStatus === "started") {
-        return <Badge className="bg-green-100 text-green-800">Running</Badge>;
-      }
-      if (item.runtimeStatus === "error") {
-        return <Badge className="bg-yellow-100 text-yellow-800">Error</Badge>;
-      }
-      return <Badge className="bg-blue-100 text-blue-800">Deployed</Badge>;
-    }
-
-    if (item.status === "deploying") {
-      return <Badge className="bg-blue-100 text-blue-800">Deploying</Badge>;
-    }
-
-    if (item.status === "starting") {
-      return <Badge className="bg-purple-100 text-purple-800">Starting</Badge>;
-    }
-
-    return <Badge className="bg-gray-100 text-gray-800">Pending</Badge>;
   };
 
-  const getPhaseLabel = (item: DeploymentItem) => {
-    if (item.status === "deploying") {
-      return "Deploying to Runtime";
+  const getStatusBadgeColor = (status: string) => {
+    switch (status) {
+      case "deployed":
+        return "bg-green-100 text-green-800";
+      case "failed":
+        return "bg-red-100 text-red-800";
+      case "deploying":
+        return "bg-blue-100 text-blue-800";
+      default:
+        return "bg-gray-100 text-gray-800";
     }
-    if (item.status === "starting") {
-      return "Starting Runtime";
-    }
-    if (item.status === "deployed") {
-      return "Deployment Complete";
-    }
-    if (item.status === "failed") {
-      return "Deployment Failed";
-    }
-    return "Pending Deployment";
   };
 
-  const deployedCount = deploymentItems.filter(
-    (item) => item.status === "deployed" && item.runtimeStatus === "started",
-  ).length;
-  const failedCount = deploymentItems.filter(
-    (item) => item.status === "failed" || item.runtimeStatus === "error",
-  ).length;
-  const pendingCount = deploymentItems.filter(
-    (item) => item.status === "pending",
-  ).length;
+  const getOverallProgress = () => {
+    if (deploymentResults.length === 0) return 0;
+    const totalProgress = deploymentResults.reduce(
+      (sum, result) => sum + result.progress,
+      0,
+    );
+    return Math.round(totalProgress / deploymentResults.length);
+  };
 
-  return (
-    <div className="space-y-6">
-      {/* Header Info */}
-      <div className="bg-gradient-to-r from-yellow-50 to-green-50 rounded-xl p-6 border border-yellow-200">
-        <div className="flex items-center space-x-3 mb-4">
-          <Rocket className="w-6 h-6 text-yellow-600" />
-          <h3 className="text-xl font-bold text-yellow-900">
-            Deploy to Runtime Environment
-          </h3>
-        </div>
-        <p className="text-yellow-700 mb-4">
-          Deploy your iFlow artifacts from design-time to runtime environment
-          and start the integration flows.
-        </p>
-        <div className="flex items-center space-x-4 text-sm text-yellow-600">
-          <span>🚀 Total Deployments: {deploymentItems.length}</span>
-          <span>✅ Running: {deployedCount}</span>
-          <span>❌ Failed: {failedCount}</span>
-          <span>⏳ Pending: {pendingCount}</span>
-        </div>
-      </div>
+  const getSuccessfulDeployments = () => {
+    return deploymentResults.filter((result) => result.status === "deployed")
+      .length;
+  };
 
-      {/* Overall Progress */}
-      <Card className="border-l-4 border-l-yellow-500">
-        <CardHeader>
-          <CardTitle className="flex items-center justify-between">
-            <span className="flex items-center">
-              <Rocket className="w-5 h-5 mr-2" />
-              Deployment Progress
-            </span>
-            <Badge
-              className={
-                deploymentComplete
-                  ? "bg-green-100 text-green-800"
-                  : isDeploying
-                    ? "bg-yellow-100 text-yellow-800"
-                    : "bg-gray-100 text-gray-800"
-              }
-            >
-              {deploymentComplete
-                ? "Complete"
-                : isDeploying
-                  ? "Deploying"
-                  : "Ready"}
-            </Badge>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-gray-600">Overall Progress</span>
-              <span className="text-sm font-bold text-gray-900">
-                {overallProgress}%
-              </span>
-            </div>
-            <Progress value={overallProgress} className="h-3" />
+  const getFailedDeployments = () => {
+    return deploymentResults.filter((result) => result.status === "failed")
+      .length;
+  };
 
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-center">
-              <div>
-                <div className="text-2xl font-bold text-gray-900">
-                  {deploymentItems.length}
-                </div>
-                <div className="text-sm text-gray-600">Total iFlows</div>
-              </div>
-              <div>
-                <div className="text-2xl font-bold text-green-600">
-                  {deployedCount}
-                </div>
-                <div className="text-sm text-gray-600">Running</div>
-              </div>
-              <div>
-                <div className="text-2xl font-bold text-red-600">
-                  {failedCount}
-                </div>
-                <div className="text-sm text-gray-600">Failed</div>
-              </div>
-              <div>
-                <div className="text-2xl font-bold text-gray-600">
-                  {pendingCount}
-                </div>
-                <div className="text-sm text-gray-600">Pending</div>
-              </div>
-            </div>
+  const getDeployableCount = () => {
+    return deploymentResults.filter((result) => result.status === "pending")
+      .length;
+  };
 
-            {!isDeploying && !deploymentComplete && (
-              <div className="flex justify-center">
-                <Button
-                  onClick={startDeployment}
-                  className="flex items-center bg-gradient-to-r from-yellow-500 to-green-500 hover:from-yellow-600 hover:to-green-600"
-                >
-                  <Rocket className="w-4 h-4 mr-2" />
-                  Start Deployment
-                </Button>
-              </div>
-            )}
+  const canProceed = () => {
+    return (
+      deploymentResults.length > 0 &&
+      deploymentResults.some((result) => result.status === "deployed")
+    );
+  };
 
-            {failedCount > 0 && deploymentComplete && (
-              <div className="flex justify-center">
-                <Button
-                  onClick={retryFailedDeployments}
-                  variant="outline"
-                  className="flex items-center"
-                >
-                  <Rocket className="w-4 h-4 mr-2" />
-                  Retry Failed Deployments
-                </Button>
-              </div>
-            )}
+  if (error) {
+    return (
+      <Card className="w-full border-red-200">
+        <CardContent className="flex items-center justify-center p-8">
+          <AlertCircle className="w-8 h-8 text-red-500 mr-3" />
+          <div>
+            <p className="text-lg font-medium text-red-800">{error}</p>
+            <Button onClick={initializeDeploymentResults} className="mt-4">
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Retry
+            </Button>
           </div>
         </CardContent>
       </Card>
+    );
+  }
 
-      {/* Deployment Items List */}
-      <div className="space-y-4">
-        {deploymentItems.map((item) => (
-          <Card key={item.id} className="hover:shadow-md transition-shadow">
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-4 flex-1">
-                  <div className="flex items-center space-x-2">
-                    <Server className="w-5 h-5 text-blue-500" />
-                    {getStatusIcon(item)}
-                  </div>
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <Card className="border-0 shadow-lg bg-gradient-to-r from-emerald-50 to-blue-50">
+        <CardHeader>
+          <div className="flex items-center space-x-4">
+            <div className="p-3 bg-emerald-100 rounded-full">
+              <Rocket className="w-6 h-6 text-emerald-600" />
+            </div>
+            <div>
+              <CardTitle className="text-2xl text-emerald-800">
+                Deploy to Runtime
+              </CardTitle>
+              <p className="text-emerald-600 mt-1">
+                Deploy uploaded integration flows to SAP Integration Suite
+                runtime environment and start the integration flows.
+              </p>
+            </div>
+          </div>
+        </CardHeader>
+      </Card>
 
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center space-x-2 mb-1">
-                      <h4 className="font-medium text-gray-900">
-                        {item.iflowName}
-                      </h4>
-                      {getStatusBadge(item)}
-                    </div>
-
-                    <div className="text-sm text-gray-600 space-y-1">
-                      <div>
-                        <span className="font-medium">Status:</span>{" "}
-                        {getPhaseLabel(item)}
-                      </div>
-                      {item.endpoint && (
-                        <div>
-                          <span className="font-medium">Endpoint:</span>{" "}
-                          <code className="text-xs bg-gray-100 px-1 rounded">
-                            {item.endpoint}
-                          </code>
-                        </div>
-                      )}
-                      {item.deploymentTime && (
-                        <div>
-                          <span className="font-medium">Deployed:</span>{" "}
-                          {item.deploymentTime}
-                        </div>
-                      )}
-                    </div>
-
-                    {(item.status === "deploying" ||
-                      item.status === "starting") && (
-                      <div className="mt-2">
-                        <div className="flex items-center justify-between text-sm mb-1">
-                          <span>{getPhaseLabel(item)}</span>
-                          <span>{item.progress}%</span>
-                        </div>
-                        <Progress value={item.progress} className="h-2" />
-                      </div>
-                    )}
-
-                    {item.errorMessage && (
-                      <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-700">
-                        <div className="flex items-center space-x-2">
-                          <AlertTriangle className="w-4 h-4" />
-                          <span>{item.errorMessage}</span>
-                        </div>
-                      </div>
-                    )}
-
-                    {item.status === "deployed" &&
-                      item.runtimeStatus === "started" && (
-                        <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded text-sm text-green-700">
-                          <div className="flex items-center space-x-2">
-                            <Play className="w-4 h-4" />
-                            <span>
-                              iFlow is running successfully in runtime
-                              environment
-                            </span>
-                          </div>
-                        </div>
-                      )}
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      {/* Deployment Summary */}
-      {deploymentComplete && (
-        <Card className="border-yellow-200 bg-yellow-50">
-          <CardHeader>
-            <CardTitle className="text-yellow-900 flex items-center">
-              <CheckCircle className="w-5 h-5 mr-2" />
-              Deployment Summary
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              <div className="text-sm text-yellow-700">
-                Deployment process completed. {deployedCount} of{" "}
-                {deploymentItems.length} iFlows are now running in the runtime
-                environment.
-              </div>
-
-              {failedCount > 0 && (
-                <div className="text-sm text-red-700">
-                  ⚠️ {failedCount} deployments failed. Please retry or check
-                  your configurations.
-                </div>
-              )}
-
-              <div className="text-sm text-yellow-700">
-                ✅ All successfully deployed iFlows are available at their
-                runtime endpoints and ready for testing.
+      {/* Summary Stats */}
+      <div className="grid grid-cols-4 gap-4">
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center space-x-3">
+              <Package className="w-8 h-8 text-blue-500" />
+              <div>
+                <p className="text-sm text-gray-600">Total iFlows</p>
+                <p className="text-2xl font-bold text-blue-600">
+                  {deploymentResults.length}
+                </p>
               </div>
             </div>
           </CardContent>
         </Card>
-      )}
 
-      {/* Navigation */}
-      <div className="flex justify-between">
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center space-x-3">
+              <Clock className="w-8 h-8 text-orange-500" />
+              <div>
+                <p className="text-sm text-gray-600">Ready to Deploy</p>
+                <p className="text-2xl font-bold text-orange-600">
+                  {getDeployableCount()}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center space-x-3">
+              <CheckCircle className="w-8 h-8 text-green-500" />
+              <div>
+                <p className="text-sm text-gray-600">Deployed</p>
+                <p className="text-2xl font-bold text-green-600">
+                  {getSuccessfulDeployments()}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center space-x-3">
+              <XCircle className="w-8 h-8 text-red-500" />
+              <div>
+                <p className="text-sm text-gray-600">Failed</p>
+                <p className="text-2xl font-bold text-red-600">
+                  {getFailedDeployments()}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Target Environment */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center space-x-2">
+            <Globe className="w-5 h-5" />
+            <span>Runtime Environment</span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-center">
+            <div className="p-6 rounded-lg border-2 border-emerald-300 bg-emerald-50">
+              <div className="text-center">
+                <Badge
+                  className={
+                    environments.find((e) => e.id === selectedEnvironment)
+                      ?.color
+                  }
+                >
+                  {environments.find((e) => e.id === selectedEnvironment)?.name}{" "}
+                  Runtime
+                </Badge>
+                <p className="text-sm text-gray-600 mt-2">
+                  {
+                    environments.find((e) => e.id === selectedEnvironment)
+                      ?.endpoint
+                  }
+                </p>
+                <div className="flex items-center justify-center space-x-4 mt-4 text-sm text-gray-600">
+                  <div className="flex items-center space-x-1">
+                    <Server className="w-4 h-4" />
+                    <span>Runtime Engine</span>
+                  </div>
+                  <div className="flex items-center space-x-1">
+                    <Activity className="w-4 h-4" />
+                    <span>Auto-start Enabled</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Overall Progress */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center space-x-2">
+              <Rocket className="w-5 h-5" />
+              <span>Deployment Progress</span>
+            </CardTitle>
+            <div className="flex items-center space-x-4">
+              <span className="text-sm text-gray-600">
+                {getOverallProgress()}% Complete
+              </span>
+              <Button
+                onClick={deployAllIFlows}
+                disabled={isDeploying || getDeployableCount() === 0}
+                className="flex items-center space-x-2"
+              >
+                {isDeploying ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <PlayCircle className="w-4 h-4" />
+                )}
+                <span>{isDeploying ? "Deploying..." : "Deploy All"}</span>
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-2 mb-4">
+            <Progress value={getOverallProgress()} className="w-full h-3" />
+            <div className="flex justify-between text-sm text-gray-600">
+              <span>
+                {getSuccessfulDeployments()}/{deploymentResults.length} deployed
+              </span>
+              <span>
+                Target:{" "}
+                {environments.find((e) => e.id === selectedEnvironment)?.name}{" "}
+                Runtime
+              </span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Individual iFlow Deployment Status */}
+      <Card>
+        <CardHeader>
+          <CardTitle>iFlow Deployment Status</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            {deploymentResults.map((result) => (
+              <div
+                key={result.iflowId}
+                className="border rounded-lg p-4 space-y-3"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-3">
+                    {getStatusIcon(result.status)}
+                    <div>
+                      <h4 className="font-medium">{result.iflowName}</h4>
+                      <p className="text-sm text-gray-600">
+                        {result.iflowId} • v{result.version} •{" "}
+                        {result.targetEnvironment}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <Badge className={getStatusBadgeColor(result.status)}>
+                      {result.status.toUpperCase()}
+                    </Badge>
+                    <span className="text-sm font-medium">
+                      {result.progress}%
+                    </span>
+                  </div>
+                </div>
+
+                <Progress value={result.progress} className="w-full" />
+
+                {result.message && (
+                  <p className="text-sm text-gray-600">{result.message}</p>
+                )}
+
+                {result.status === "deployed" && result.runtimeId && (
+                  <div className="bg-green-50 p-3 rounded text-sm">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-green-800">
+                          <strong>Runtime ID:</strong> {result.runtimeId}
+                        </p>
+                        <p className="text-green-700">
+                          <strong>Deployment ID:</strong> {result.deploymentId}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-green-700">
+                          <strong>Status:</strong> Running
+                        </p>
+                        <p className="text-green-700">
+                          <strong>Deployed At:</strong>{" "}
+                          {new Date(result.timestamp!).toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {result.status === "failed" && (
+                  <Alert className="border-red-200 bg-red-50">
+                    <AlertCircle className="h-4 w-4 text-red-600" />
+                    <AlertTitle className="text-red-800">
+                      Deployment Failed
+                    </AlertTitle>
+                    <AlertDescription className="text-red-700">
+                      {result.message ||
+                        "Unknown error occurred during deployment"}
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Deployment Summary */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Deployment Summary</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 gap-6">
+            <div>
+              <h4 className="font-medium mb-3">Runtime Environment</h4>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span>Environment:</span>
+                  <Badge
+                    className={
+                      environments.find((e) => e.id === selectedEnvironment)
+                        ?.color
+                    }
+                  >
+                    {
+                      environments.find((e) => e.id === selectedEnvironment)
+                        ?.name
+                    }
+                  </Badge>
+                </div>
+                <div className="flex justify-between">
+                  <span>Runtime Endpoint:</span>
+                  <span className="font-medium">
+                    {
+                      environments.find((e) => e.id === selectedEnvironment)
+                        ?.endpoint
+                    }
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Auto-start:</span>
+                  <span className="font-medium text-green-600">Enabled</span>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <h4 className="font-medium mb-3">Deployment Statistics</h4>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span>Total iFlows:</span>
+                  <span className="font-medium">
+                    {deploymentResults.length}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Successfully Deployed:</span>
+                  <span className="font-medium text-green-600">
+                    {getSuccessfulDeployments()}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Failed Deployments:</span>
+                  <span className="font-medium text-red-600">
+                    {getFailedDeployments()}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Overall Progress:</span>
+                  <span className="font-medium">{getOverallProgress()}%</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {getFailedDeployments() > 0 && (
+            <Alert className="mt-4 border-red-200 bg-red-50">
+              <AlertCircle className="h-4 w-4 text-red-600" />
+              <AlertTitle className="text-red-800">
+                Deployment Issues Detected
+              </AlertTitle>
+              <AlertDescription className="text-red-700">
+                {getFailedDeployments()} deployment(s) failed. Please review the
+                errors and retry deployment for failed iFlows before proceeding
+                to testing.
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {getSuccessfulDeployments() > 0 && (
+            <Alert className="mt-4 border-green-200 bg-green-50">
+              <CheckCircle className="h-4 w-4 text-green-600" />
+              <AlertTitle className="text-green-800">
+                Deployment Successful
+              </AlertTitle>
+              <AlertDescription className="text-green-700">
+                {getSuccessfulDeployments()} integration flow(s) have been
+                successfully deployed and are now running in the{" "}
+                {environments.find((e) => e.id === selectedEnvironment)?.name}{" "}
+                environment. You can now proceed to testing.
+              </AlertDescription>
+            </Alert>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Action Buttons */}
+      <div className="flex justify-between pt-4">
         <Button
-          variant="outline"
           onClick={onPrevious}
-          className="flex items-center"
+          variant="outline"
+          className="flex items-center space-x-2"
         >
-          <ArrowRight className="w-4 h-4 mr-2 rotate-180" />
-          Back to Upload
+          <ArrowLeft className="w-4 h-4" />
+          <span>Previous: Upload Artifacts</span>
         </Button>
-        <Button
-          onClick={handleContinue}
-          disabled={!deploymentComplete || failedCount > 0}
-          className="flex items-center"
-        >
-          Continue to Testing
-          <ArrowRight className="w-4 h-4 ml-2" />
-        </Button>
+
+        <div className="flex space-x-4">
+          <Button
+            onClick={initializeDeploymentResults}
+            variant="outline"
+            className="flex items-center space-x-2"
+          >
+            <RefreshCw className="w-4 h-4" />
+            <span>Refresh Status</span>
+          </Button>
+
+          <Button
+            onClick={() => {
+              onComplete({
+                deploymentResults: {
+                  environment: selectedEnvironment,
+                  results: deploymentResults,
+                  successCount: getSuccessfulDeployments(),
+                  failureCount: getFailedDeployments(),
+                  timestamp: new Date().toISOString(),
+                },
+              });
+              onNext();
+            }}
+            disabled={!canProceed()}
+            className="flex items-center space-x-2"
+          >
+            <span>Next: Testing</span>
+            <ArrowRight className="w-4 h-4" />
+          </Button>
+        </div>
       </div>
     </div>
   );

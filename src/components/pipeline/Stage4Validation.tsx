@@ -3,38 +3,46 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  ArrowRight,
   Shield,
   CheckCircle,
-  AlertTriangle,
   XCircle,
-  FileText,
-  Eye,
+  AlertTriangle,
+  RefreshCw,
+  ArrowRight,
+  ArrowLeft,
+  Play,
+  Clock,
+  TrendingUp,
+  AlertCircle,
+  FileCheck,
+  Zap,
 } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
-interface ValidationRule {
-  id: string;
-  category: string;
-  rule: string;
-  description: string;
-  severity: "error" | "warning" | "info";
-  weight: number;
+interface DesignGuidelineResult {
+  RuleId: string;
+  RuleName: string;
+  Category: string;
+  Severity: string;
+  Status: "PASSED" | "FAILED" | "WARNING" | "NOT_APPLICABLE";
+  Message?: string;
+  Description?: string;
+  ExecutionDate?: string;
 }
 
-interface ValidationResult {
+interface IFlowValidation {
   iflowId: string;
   iflowName: string;
+  version: string;
+  guidelines: DesignGuidelineResult[];
   totalRules: number;
-  passedRules: number;
-  failedRules: number;
-  warningRules: number;
-  complianceScore: number;
-  results: {
-    ruleId: string;
-    status: "pass" | "fail" | "warning";
-    message: string;
-  }[];
+  compliantRules: number;
+  compliancePercentage: number;
+  isCompliant: boolean;
+  lastExecuted?: string;
+  hasExecutionHistory: boolean;
 }
 
 interface Stage4Props {
@@ -50,477 +58,859 @@ const Stage4Validation: React.FC<Stage4Props> = ({
   onNext,
   onPrevious,
 }) => {
-  const [validationResults, setValidationResults] = useState<
-    ValidationResult[]
-  >([]);
+  const [validationResults, setValidationResults] = useState<IFlowValidation[]>(
+    [],
+  );
   const [loading, setLoading] = useState(true);
-  const [selectedIFlow, setSelectedIFlow] = useState<string | null>(null);
-
-  // Mock validation rules
-  const mockValidationRules: ValidationRule[] = [
-    {
-      id: "rule-001",
-      category: "Security",
-      rule: "Credential Storage",
-      description: "All credentials must be stored in secure parameter store",
-      severity: "error",
-      weight: 10,
-    },
-    {
-      id: "rule-002",
-      category: "Security",
-      rule: "HTTPS Usage",
-      description: "All external communications must use HTTPS",
-      severity: "error",
-      weight: 8,
-    },
-    {
-      id: "rule-003",
-      category: "Performance",
-      rule: "Batch Size Limit",
-      description: "Batch size should not exceed 1000 records",
-      severity: "warning",
-      weight: 5,
-    },
-    {
-      id: "rule-004",
-      category: "Error Handling",
-      rule: "Exception Handling",
-      description: "All flows must have proper exception handling",
-      severity: "error",
-      weight: 9,
-    },
-    {
-      id: "rule-005",
-      category: "Monitoring",
-      rule: "Logging Standards",
-      description: "Adequate logging must be implemented",
-      severity: "warning",
-      weight: 6,
-    },
-    {
-      id: "rule-006",
-      category: "Documentation",
-      rule: "Flow Documentation",
-      description: "Flow must have proper documentation",
-      severity: "info",
-      weight: 3,
-    },
-    {
-      id: "rule-007",
-      category: "Performance",
-      rule: "Timeout Configuration",
-      description: "Timeouts must be configured for external calls",
-      severity: "warning",
-      weight: 7,
-    },
-    {
-      id: "rule-008",
-      category: "Security",
-      rule: "Input Validation",
-      description: "All inputs must be validated",
-      severity: "error",
-      weight: 8,
-    },
-  ];
+  const [executing, setExecuting] = useState<Record<string, boolean>>({});
+  const [executed, setExecuted] = useState<Record<string, boolean>>({});
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Simulate validation process
-    setTimeout(() => {
-      const selectedIFlows = data.selectedIFlows || [];
-      const iflowNames = {
-        "iflow-001": "Customer Master Data Sync",
-        "iflow-002": "Customer Address Validation",
-        "iflow-003": "Order Processing Workflow",
-        "iflow-004": "Order Status Updates",
-        "iflow-005": "Inventory Sync",
-        "iflow-006": "Financial Data Export",
-        "iflow-007": "GL Account Mapping",
-      };
+    loadValidationResults();
+  }, [data.selectedIFlows]);
 
-      const results: ValidationResult[] = selectedIFlows.map(
-        (iflowId: string) => {
-          const ruleResults = mockValidationRules.map((rule) => {
-            // Simulate random validation results
-            const rand = Math.random();
-            let status: "pass" | "fail" | "warning";
-            let message: string;
+  const loadValidationResults = async () => {
+    setLoading(true);
+    setError(null);
 
-            if (rule.severity === "error") {
-              status = rand > 0.15 ? "pass" : "fail";
-              message =
-                status === "pass"
-                  ? `${rule.rule} validation passed`
-                  : `${rule.rule} validation failed - requires immediate attention`;
-            } else if (rule.severity === "warning") {
-              status = rand > 0.3 ? "pass" : "warning";
-              message =
-                status === "pass"
-                  ? `${rule.rule} validation passed`
-                  : `${rule.rule} validation warning - consider optimization`;
-            } else {
-              status = rand > 0.5 ? "pass" : "warning";
-              message =
-                status === "pass"
-                  ? `${rule.rule} validation passed`
-                  : `${rule.rule} - documentation could be improved`;
+    try {
+      if (!data.selectedIFlows || data.selectedIFlows.length === 0) {
+        setError(
+          "No integration flows selected. Please go back and select iFlows.",
+        );
+        setLoading(false);
+        return;
+      }
+
+      console.log("Loading design guidelines for iFlows:", data.selectedIFlows);
+      console.log("Available iFlow details:", data.iflowDetails);
+
+      const validationPromises = data.selectedIFlows.map(
+        async (iflowId: string) => {
+          try {
+            // Find the iflow details from previous stage data
+            const iflowDetails = data.iflowDetails?.find(
+              (iflow: any) => iflow.id === iflowId || iflow.Id === iflowId,
+            );
+
+            // Use the actual version from iflow details, not hardcoded "1.0.0"
+            const iflowVersion = iflowDetails?.version || iflowDetails?.Version || "active";
+            const iflowName = iflowDetails?.name || iflowDetails?.Name || `iFlow ${iflowId}`;
+
+            console.log(`Fetching design guidelines for iFlow: ${iflowId}, version: ${iflowVersion}`);
+
+            // Make API call to backend for design guidelines
+            const backendUrl = `http://localhost:8000/api/sap/iflows/${iflowId}/design-guidelines?version=${iflowVersion}`;
+            const response = await fetch(backendUrl);
+
+            if (!response.ok) {
+              throw new Error(
+                `Failed to fetch design guidelines for ${iflowId}: ${response.status}`,
+              );
             }
+
+            const result = await response.json();
+            const validationData = result.data;
 
             return {
-              ruleId: rule.id,
-              status,
-              message,
+              iflowId,
+              iflowName,
+              version: iflowVersion,
+              guidelines: validationData.guidelines || [],
+              totalRules: validationData.total_rules || 0,
+              compliantRules: validationData.compliant_rules || 0,
+              compliancePercentage: validationData.compliance_percentage || 0,
+              isCompliant: validationData.is_compliant || false,
+              lastExecuted: validationData.last_executed,
+              hasExecutionHistory: validationData.guidelines.length > 0,
             };
-          });
+          } catch (error) {
+            console.error(
+              `Failed to load validation results for ${iflowId}:`,
+              error,
+            );
+            
+            // Find the iflow details for error case as well
+            const iflowDetails = data.iflowDetails?.find(
+              (iflow: any) => iflow.id === iflowId || iflow.Id === iflowId,
+            );
 
-          const passedRules = ruleResults.filter(
-            (r) => r.status === "pass",
-          ).length;
-          const failedRules = ruleResults.filter(
-            (r) => r.status === "fail",
-          ).length;
-          const warningRules = ruleResults.filter(
-            (r) => r.status === "warning",
-          ).length;
+            const iflowVersion = iflowDetails?.version || iflowDetails?.Version || "active";
+            const iflowName = iflowDetails?.name || iflowDetails?.Name || `iFlow ${iflowId}`;
 
-          // Calculate compliance score based on rule weights
-          let totalWeight = 0;
-          let achievedWeight = 0;
-
-          mockValidationRules.forEach((rule) => {
-            const result = ruleResults.find((r) => r.ruleId === rule.id);
-            totalWeight += rule.weight;
-            if (result?.status === "pass") {
-              achievedWeight += rule.weight;
-            } else if (result?.status === "warning") {
-              achievedWeight += rule.weight * 0.5; // Half credit for warnings
-            }
-          });
-
-          const complianceScore = Math.round(
-            (achievedWeight / totalWeight) * 100,
-          );
-
-          return {
-            iflowId,
-            iflowName: iflowNames[iflowId] || `iFlow ${iflowId}`,
-            totalRules: mockValidationRules.length,
-            passedRules,
-            failedRules,
-            warningRules,
-            complianceScore,
-            results: ruleResults,
-          };
+            return {
+              iflowId,
+              iflowName,
+              version: iflowVersion,
+              guidelines: [],
+              totalRules: 0,
+              compliantRules: 0,
+              compliancePercentage: 0,
+              isCompliant: false,
+              hasExecutionHistory: false,
+            };
+          }
         },
       );
 
+      const results = await Promise.all(validationPromises);
       setValidationResults(results);
-      setLoading(false);
-    }, 2000);
-  }, [data.selectedIFlows]);
 
-  const handleContinue = () => {
-    const overallCompliance =
-      validationResults.reduce(
-        (acc, result) => acc + result.complianceScore,
-        0,
-      ) / validationResults.length;
+      // Only auto-execute for iFlows that haven't been executed yet and have no history
+      const iflowsToExecute = results.filter(
+        (result) => !result.hasExecutionHistory && !executed[result.iflowId]
+      );
+      
+      if (iflowsToExecute.length > 0) {
+        console.log(`Auto-executing design guidelines for ${iflowsToExecute.length} iFlows`);
+        
+        // Execute sequentially to avoid overwhelming the API
+        for (const iflow of iflowsToExecute) {
+          if (!executed[iflow.iflowId]) {
+            await executeDesignGuidelines(iflow.iflowId, iflow.version, false);
+            setExecuted(prev => ({ ...prev, [iflow.iflowId]: true }));
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Failed to load validation results:", error);
+      setError("Failed to load design validation results");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const executeDesignGuidelines = async (
+    iflowId: string,
+    version: string = "active",
+    showSuccess = true,
+  ) => {
+    // Prevent multiple executions for same iFlow
+    if (executing[iflowId] || executed[iflowId]) {
+      console.log(`Skipping execution for ${iflowId} - already executing or executed`);
+      return;
+    }
+
+    setExecuting((prev) => ({ ...prev, [iflowId]: true }));
+
+    try {
+      console.log(`Executing design guidelines for iFlow: ${iflowId}, version: ${version}`);
+
+      // Step 1: Execute design guidelines (POST)
+      const executeUrl = `http://localhost:8000/api/sap/iflows/${iflowId}/execute-guidelines?version=${version}`;
+      const executeResponse = await fetch(executeUrl, { 
+        method: "POST",
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+
+      if (!executeResponse.ok) {
+        throw new Error(`Failed to execute design guidelines: ${executeResponse.status}`);
+      }
+
+      const executeResult = await executeResponse.json();
+      console.log(`Design guidelines execution started for ${iflowId}:`, executeResult);
+
+      // Extract execution ID from response
+      const executionId = executeResult.data?.execution_id;
+      console.log(`Execution ID for ${iflowId}: ${executionId}`);
+
+      // Mark as executed to prevent re-execution
+      setExecuted(prev => ({ ...prev, [iflowId]: true }));
+
+      // Step 2: Wait for execution to complete (increased wait time)
+      console.log(`Waiting 8 seconds for execution to complete for ${iflowId}...`);
+      await new Promise(resolve => setTimeout(resolve, 8000));
+
+      // Step 3: Fetch the execution results using execution ID if available
+      console.log(`Fetching design guidelines results for ${iflowId}${executionId ? ` with execution ID: ${executionId}` : ''}`);
+      
+      let fetchUrl;
+      if (executionId) {
+        // Use specific execution ID endpoint
+        fetchUrl = `http://localhost:8000/api/sap/iflows/${iflowId}/design-guidelines?version=${version}&execution_id=${executionId}`;
+      } else {
+        // Fallback to general endpoint (will get latest)
+        fetchUrl = `http://localhost:8000/api/sap/iflows/${iflowId}/design-guidelines?version=${version}`;
+      }
+
+      const fetchResponse = await fetch(fetchUrl);
+
+      if (fetchResponse.ok) {
+        const fetchResult = await fetchResponse.json();
+        console.log(`Design guidelines results for ${iflowId}:`, fetchResult);
+
+        // Update the specific iFlow's results
+        setValidationResults(prev => 
+          prev.map(result => 
+            result.iflowId === iflowId 
+              ? {
+                  ...result,
+                  guidelines: fetchResult.data.guidelines || [],
+                  totalRules: fetchResult.data.total_rules || 0,
+                  compliantRules: fetchResult.data.compliant_rules || 0,
+                  compliancePercentage: fetchResult.data.compliance_percentage || 0,
+                  isCompliant: fetchResult.data.is_compliant || false,
+                  hasExecutionHistory: (fetchResult.data.guidelines || []).length > 0,
+                  lastExecuted: fetchResult.data.last_executed,
+                  executionId: fetchResult.data.execution_id,
+                }
+              : result
+          )
+        );
+
+        if (showSuccess && fetchResult.data.guidelines.length > 0) {
+          console.log(`✅ Successfully retrieved ${fetchResult.data.guidelines.length} design guidelines results for ${iflowId}`);
+        }
+
+        // If we didn't get guidelines, try polling a few more times
+        if (!fetchResult.data.guidelines || fetchResult.data.guidelines.length === 0) {
+          console.log(`No guidelines found yet for ${iflowId}, trying again in 5 seconds...`);
+          
+          // Try 2 more times with 5-second intervals
+          for (let attempt = 1; attempt <= 2; attempt++) {
+            await new Promise(resolve => setTimeout(resolve, 5000));
+            
+            const retryResponse = await fetch(fetchUrl);
+            if (retryResponse.ok) {
+              const retryResult = await retryResponse.json();
+              if (retryResult.data.guidelines && retryResult.data.guidelines.length > 0) {
+                console.log(`✅ Got guidelines on attempt ${attempt + 1} for ${iflowId}`);
+                
+                setValidationResults(prev => 
+                  prev.map(result => 
+                    result.iflowId === iflowId 
+                      ? {
+                          ...result,
+                          guidelines: retryResult.data.guidelines || [],
+                          totalRules: retryResult.data.total_rules || 0,
+                          compliantRules: retryResult.data.compliant_rules || 0,
+                          compliancePercentage: retryResult.data.compliance_percentage || 0,
+                          isCompliant: retryResult.data.is_compliant || false,
+                          hasExecutionHistory: (retryResult.data.guidelines || []).length > 0,
+                          lastExecuted: retryResult.data.last_executed,
+                          executionId: retryResult.data.execution_id,
+                        }
+                      : result
+                  )
+                );
+                break;
+              }
+            }
+          }
+        }
+      } else {
+        console.error(`Failed to fetch guidelines results for ${iflowId}: ${fetchResponse.status}`);
+      }
+
+    } catch (error) {
+      console.error(`Failed to execute design guidelines for ${iflowId}:`, error);
+      setError(`Failed to execute design guidelines for ${iflowId}: ${error.message}`);
+    } finally {
+      setExecuting((prev) => ({ ...prev, [iflowId]: false }));
+    }
+  };
+
+  const getOverallCompliance = () => {
+    if (validationResults.length === 0) return 0;
+    const totalCompliance = validationResults.reduce(
+      (sum, result) => sum + result.compliancePercentage,
+      0,
+    );
+    return Math.round(totalCompliance / validationResults.length);
+  };
+
+  const getNonCompliantIFlows = () => {
+    return validationResults.filter((result) => !result.isCompliant);
+  };
+
+  const getComplianceColor = (percentage: number) => {
+    if (percentage >= 75) return "text-green-600";
+    if (percentage >= 50) return "text-yellow-600";
+    return "text-red-600";
+  };
+
+  const getComplianceBadgeColor = (percentage: number) => {
+    if (percentage >= 75) return "bg-green-100 text-green-800";
+    if (percentage >= 50) return "bg-yellow-100 text-yellow-800";
+    return "bg-red-100 text-red-800";
+  };
+
+  const getRuleIcon = (status: string) => {
+    switch (status) {
+      case "PASSED":
+        return <CheckCircle className="w-4 h-4 text-green-500" />;
+      case "FAILED":
+        return <XCircle className="w-4 h-4 text-red-500" />;
+      case "WARNING":
+        return <AlertTriangle className="w-4 h-4 text-yellow-500" />;
+      default:
+        return <Clock className="w-4 h-4 text-gray-400" />;
+    }
+  };
+
+  const canProceed = () => {
+    // Allow proceeding even without execution for now
+    return true;
+  };
+
+  const handleNext = () => {
+    const overallCompliance = getOverallCompliance();
+    const nonCompliantIFlows = getNonCompliantIFlows();
 
     onComplete({
-      validationResults,
-      overallCompliance: Math.round(overallCompliance),
-      totalIFlows: validationResults.length,
-      criticalIssues: validationResults.reduce(
-        (acc, result) => acc + result.failedRules,
-        0,
-      ),
+      ...data,
+      validationResults: {
+        overallCompliance,
+        nonCompliantIFlows: nonCompliantIFlows.map((iflow) => ({
+          id: iflow.iflowId,
+          name: iflow.iflowName,
+          compliance: iflow.compliancePercentage,
+        })),
+        results: validationResults,
+      },
     });
     onNext();
   };
 
-  const getComplianceColor = (score: number) => {
-    if (score >= 90) return "text-green-600";
-    if (score >= 70) return "text-yellow-600";
-    return "text-red-600";
-  };
-
-  const getComplianceBadge = (score: number) => {
-    if (score >= 90)
-      return <Badge className="bg-green-100 text-green-800">Excellent</Badge>;
-    if (score >= 70)
-      return <Badge className="bg-yellow-100 text-yellow-800">Good</Badge>;
-    return <Badge className="bg-red-100 text-red-800">Needs Attention</Badge>;
-  };
-
   if (loading) {
     return (
-      <div className="space-y-6">
-        <div className="bg-gradient-to-r from-pink-50 to-red-50 rounded-xl p-6 border border-pink-200">
-          <div className="flex items-center space-x-3 mb-4">
-            <Shield className="w-6 h-6 text-pink-600 animate-pulse" />
-            <h3 className="text-xl font-bold text-pink-900">
-              Design Guidelines Validation
-            </h3>
-          </div>
-          <p className="text-pink-700 mb-4">
-            Validating your iFlows against enterprise design guidelines and best
-            practices...
-          </p>
-        </div>
-
-        <Card>
-          <CardContent className="p-12 text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-pink-600 mx-auto mb-4"></div>
-            <p className="text-lg text-gray-600">
-              Running validation checks...
-            </p>
-            <p className="text-sm text-gray-500 mt-2">
-              This may take a few moments
-            </p>
-          </CardContent>
-        </Card>
-      </div>
+      <Card className="w-full">
+        <CardContent className="flex items-center justify-center p-8">
+          <RefreshCw className="w-8 h-8 animate-spin text-blue-500 mr-3" />
+          <span className="text-lg">Loading design validation results...</span>
+        </CardContent>
+      </Card>
     );
   }
 
-  const overallCompliance =
-    validationResults.reduce((acc, result) => acc + result.complianceScore, 0) /
-    validationResults.length;
-
-  const totalCriticalIssues = validationResults.reduce(
-    (acc, result) => acc + result.failedRules,
-    0,
-  );
-
-  return (
-    <div className="space-y-6">
-      {/* Header Info */}
-      <div className="bg-gradient-to-r from-pink-50 to-red-50 rounded-xl p-6 border border-pink-200">
-        <div className="flex items-center space-x-3 mb-4">
-          <Shield className="w-6 h-6 text-pink-600" />
-          <h3 className="text-xl font-bold text-pink-900">
-            Design Guidelines Validation
-          </h3>
-        </div>
-        <p className="text-pink-700 mb-4">
-          Validation results for your iFlows against enterprise design
-          guidelines and security standards.
-        </p>
-        <div className="flex items-center space-x-4 text-sm text-pink-600">
-          <span>🔍 iFlows Validated: {validationResults.length}</span>
-          <span>📊 Overall Compliance: {Math.round(overallCompliance)}%</span>
-          <span>🚨 Critical Issues: {totalCriticalIssues}</span>
-        </div>
-      </div>
-
-      {/* Overall Summary */}
-      <Card className="border-l-4 border-l-pink-500">
-        <CardHeader>
-          <CardTitle className="flex items-center justify-between">
-            <span className="flex items-center">
-              <FileText className="w-5 h-5 mr-2" />
-              Validation Summary
-            </span>
-            {getComplianceBadge(overallCompliance)}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <div className="text-center">
-              <div
-                className={`text-3xl font-bold ${getComplianceColor(overallCompliance)}`}
-              >
-                {Math.round(overallCompliance)}%
-              </div>
-              <div className="text-sm text-gray-600">Overall Compliance</div>
-              <Progress value={overallCompliance} className="mt-2" />
-            </div>
-            <div className="text-center">
-              <div className="text-3xl font-bold text-green-600">
-                {validationResults.reduce(
-                  (acc, result) => acc + result.passedRules,
-                  0,
-                )}
-              </div>
-              <div className="text-sm text-gray-600">Rules Passed</div>
-            </div>
-            <div className="text-center">
-              <div className="text-3xl font-bold text-yellow-600">
-                {validationResults.reduce(
-                  (acc, result) => acc + result.warningRules,
-                  0,
-                )}
-              </div>
-              <div className="text-sm text-gray-600">Warnings</div>
-            </div>
-            <div className="text-center">
-              <div className="text-3xl font-bold text-red-600">
-                {totalCriticalIssues}
-              </div>
-              <div className="text-sm text-gray-600">Critical Issues</div>
-            </div>
+  if (error) {
+    return (
+      <Card className="w-full border-red-200">
+        <CardContent className="flex items-center justify-center p-8">
+          <AlertCircle className="w-8 h-8 text-red-500 mr-3" />
+          <div>
+            <p className="text-lg font-medium text-red-800">{error}</p>
+            <Button onClick={loadValidationResults} className="mt-4">
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Retry
+            </Button>
           </div>
         </CardContent>
       </Card>
+    );
+  }
 
-      {/* Individual iFlow Results */}
-      <div className="grid gap-4">
-        {validationResults.map((result) => (
-          <Card
-            key={result.iflowId}
-            className="hover:shadow-lg transition-all duration-300"
-          >
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center">
-                  <Shield className="w-5 h-5 mr-2" />
-                  {result.iflowName}
-                </CardTitle>
-                <div className="flex items-center space-x-2">
-                  {getComplianceBadge(result.complianceScore)}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      setSelectedIFlow(
-                        selectedIFlow === result.iflowId
-                          ? null
-                          : result.iflowId,
-                      )
-                    }
-                  >
-                    <Eye className="w-4 h-4 mr-1" />
-                    {selectedIFlow === result.iflowId ? "Hide" : "Details"}
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-600">
-                    Compliance Score
-                  </span>
-                  <span
-                    className={`text-lg font-bold ${getComplianceColor(result.complianceScore)}`}
-                  >
-                    {result.complianceScore}%
-                  </span>
-                </div>
-                <Progress value={result.complianceScore} />
+  const overallCompliance = getOverallCompliance();
+  const nonCompliantIFlows = getNonCompliantIFlows();
 
-                <div className="grid grid-cols-3 gap-4 text-sm">
-                  <div className="flex items-center space-x-2">
-                    <CheckCircle className="w-4 h-4 text-green-500" />
-                    <span>{result.passedRules} Passed</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <AlertTriangle className="w-4 h-4 text-yellow-500" />
-                    <span>{result.warningRules} Warnings</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <XCircle className="w-4 h-4 text-red-500" />
-                    <span>{result.failedRules} Failed</span>
-                  </div>
-                </div>
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <Card className="border-0 shadow-lg bg-gradient-to-r from-green-50 to-blue-50">
+        <CardHeader>
+          <div className="flex items-center space-x-4">
+            <div className="p-3 bg-green-100 rounded-full">
+              <Shield className="w-6 h-6 text-green-600" />
+            </div>
+            <div>
+              <CardTitle className="text-2xl text-green-800">
+                Design Guidelines Validation
+              </CardTitle>
+              <p className="text-green-600 mt-1">
+                Validate your integration flows against SAP design guidelines to
+                ensure best practices and compliance.
+              </p>
+            </div>
+          </div>
+        </CardHeader>
+      </Card>
 
-                {selectedIFlow === result.iflowId && (
-                  <div className="mt-4 space-y-3 border-t pt-4">
-                    <h4 className="font-semibold text-gray-900">
-                      Detailed Results
-                    </h4>
-                    {result.results.map((ruleResult, index) => {
-                      const rule = mockValidationRules.find(
-                        (r) => r.ruleId === ruleResult.ruleId,
-                      );
-                      return (
-                        <div
-                          key={ruleResult.ruleId}
-                          className={`p-3 rounded-lg border-l-4 ${
-                            ruleResult.status === "pass"
-                              ? "border-l-green-500 bg-green-50"
-                              : ruleResult.status === "warning"
-                                ? "border-l-yellow-500 bg-yellow-50"
-                                : "border-l-red-500 bg-red-50"
-                          }`}
-                        >
-                          <div className="flex items-start justify-between">
-                            <div>
-                              <div className="flex items-center space-x-2">
-                                <Badge variant="outline" className="text-xs">
-                                  {rule?.category}
-                                </Badge>
-                                <span className="font-medium">
-                                  {rule?.rule}
-                                </span>
-                              </div>
-                              <p className="text-sm text-gray-600 mt-1">
-                                {ruleResult.message}
-                              </p>
-                            </div>
-                            <div className="flex-shrink-0">
-                              {ruleResult.status === "pass" && (
-                                <CheckCircle className="w-5 h-5 text-green-500" />
-                              )}
-                              {ruleResult.status === "warning" && (
-                                <AlertTriangle className="w-5 h-5 text-yellow-500" />
-                              )}
-                              {ruleResult.status === "fail" && (
-                                <XCircle className="w-5 h-5 text-red-500" />
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      {/* Compliance Warning */}
-      {overallCompliance < 70 && (
-        <Card className="border-red-200 bg-red-50">
-          <CardContent className="p-6">
-            <div className="flex items-start space-x-3">
-              <AlertTriangle className="w-6 h-6 text-red-600 mt-0.5" />
+      {/* Overall Compliance Summary */}
+      <div className="grid grid-cols-4 gap-4">
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center space-x-3">
+              <FileCheck className="w-8 h-8 text-blue-500" />
               <div>
-                <h3 className="font-medium text-red-900 mb-2">
-                  Compliance Below Threshold
-                </h3>
-                <p className="text-sm text-red-700">
-                  The overall compliance score is{" "}
-                  {Math.round(overallCompliance)}%, which is below the
-                  recommended 70% threshold. Please review and address the
-                  critical issues before proceeding to deployment.
+                <p className="text-sm text-gray-600">iFlows Validated</p>
+                <p className="text-2xl font-bold text-blue-600">
+                  {validationResults.length}
                 </p>
               </div>
             </div>
           </CardContent>
         </Card>
+
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center space-x-3">
+              <TrendingUp className="w-8 h-8 text-purple-500" />
+              <div>
+                <p className="text-sm text-gray-600">Overall Compliance</p>
+                <p
+                  className={`text-2xl font-bold ${getComplianceColor(overallCompliance)}`}
+                >
+                  {overallCompliance}%
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center space-x-3">
+              <CheckCircle className="w-8 h-8 text-green-500" />
+              <div>
+                <p className="text-sm text-gray-600">Compliant iFlows</p>
+                <p className="text-2xl font-bold text-green-600">
+                  {validationResults.filter((r) => r.isCompliant).length}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center space-x-3">
+              <XCircle className="w-8 h-8 text-red-500" />
+              <div>
+                <p className="text-sm text-gray-600">Non-Compliant</p>
+                <p className="text-2xl font-bold text-red-600">
+                  {nonCompliantIFlows.length}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Compliance Alert */}
+      {nonCompliantIFlows.length > 0 && (
+        <Alert className="border-yellow-200 bg-yellow-50">
+          <AlertTriangle className="h-4 w-4 text-yellow-600" />
+          <AlertTitle className="text-yellow-800">
+            Design Guidelines Compliance Warning
+          </AlertTitle>
+          <AlertDescription className="text-yellow-700">
+            {nonCompliantIFlows.length} integration flow(s) have compliance
+            percentage below 75%. Please review the design guidelines violations
+            before proceeding with deployment.
+            <div className="mt-2">
+              <strong>Non-compliant iFlows:</strong>{" "}
+              {nonCompliantIFlows.map((iflow) => iflow.iflowName).join(", ")}
+            </div>
+          </AlertDescription>
+        </Alert>
       )}
 
-      {/* Navigation */}
-      <div className="flex justify-between">
+      {/* Detailed Results by iFlow */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center space-x-2">
+            <FileCheck className="w-5 h-5" />
+            <span>Detailed Results by iFlow</span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {validationResults.map((result) => (
+            <div key={result.iflowId} className="border rounded-lg p-4 space-y-4">
+              {/* iFlow Header */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">
+                    {result.iflowName}
+                  </h3>
+                  <p className="text-sm text-gray-600">ID: {result.iflowId} | Version: {result.version}</p>
+                </div>
+                <div className="text-right">
+                  <div className={`text-2xl font-bold ${getComplianceColor(result.compliancePercentage)}`}>
+                    {result.compliancePercentage}%
+                  </div>
+                  <Badge className={getComplianceBadgeColor(result.compliancePercentage)}>
+                    {result.isCompliant ? "Compliant" : "Non-Compliant"}
+                  </Badge>
+                </div>
+              </div>
+
+              {/* Progress Bar */}
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span>Compliance Progress</span>
+                  <span>{result.compliantRules}/{result.totalRules} rules passed</span>
+                </div>
+                <Progress value={result.compliancePercentage} className="w-full" />
+              </div>
+
+              {/* Guidelines Breakdown */}
+              {result.guidelines.length > 0 ? (
+                <div className="space-y-3">
+                  <h4 className="font-medium text-gray-900">Design Guidelines Results:</h4>
+                  
+                  {/* Rules by Status */}
+                  <div className="grid grid-cols-4 gap-4 text-center">
+                    <div className="bg-green-50 p-3 rounded-lg">
+                      <div className="text-2xl font-bold text-green-600">
+                        {result.guidelines.filter(g => g.Status === "PASSED").length}
+                      </div>
+                      <div className="text-xs text-green-600">Passed</div>
+                    </div>
+                    <div className="bg-red-50 p-3 rounded-lg">
+                      <div className="text-2xl font-bold text-red-600">
+                        {result.guidelines.filter(g => g.Status === "FAILED").length}
+                      </div>
+                      <div className="text-xs text-red-600">Failed</div>
+                    </div>
+                    <div className="bg-yellow-50 p-3 rounded-lg">
+                      <div className="text-2xl font-bold text-yellow-600">
+                        {result.guidelines.filter(g => g.Status === "WARNING").length}
+                      </div>
+                      <div className="text-xs text-yellow-600">Warnings</div>
+                    </div>
+                    <div className="bg-gray-50 p-3 rounded-lg">
+                      <div className="text-2xl font-bold text-gray-600">
+                        {result.guidelines.filter(g => g.Status === "NOT_APPLICABLE").length}
+                      </div>
+                      <div className="text-xs text-gray-600">N/A</div>
+                    </div>
+                  </div>
+
+                  {/* Failed Rules Details */}
+                  {result.guidelines.filter(g => g.Status === "FAILED").length > 0 && (
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                      <h5 className="font-medium text-red-800 mb-3">Failed Rules that need attention:</h5>
+                      <div className="space-y-2">
+                        {result.guidelines
+                          .filter(g => g.Status === "FAILED")
+                          .map((guideline, index) => (
+                            <div key={index} className="bg-white p-3 rounded border-l-4 border-red-400">
+                              <div className="flex items-start justify-between">
+                                <div className="flex-1">
+                                  <p className="font-medium text-red-900">
+                                    {guideline.RuleName || guideline.RuleId}
+                                  </p>
+                                  <p className="text-sm text-red-700">
+                                    Category: {guideline.Category} | Severity: {guideline.Severity}
+                                  </p>
+                                  {guideline.Message && (
+                                    <p className="text-sm text-red-600 mt-1 italic">
+                                      {guideline.Message}
+                                    </p>
+                                  )}
+                                </div>
+                                <XCircle className="w-5 h-5 text-red-500 mt-1" />
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Warning Rules Details */}
+                  {result.guidelines.filter(g => g.Status === "WARNING").length > 0 && (
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                      <h5 className="font-medium text-yellow-800 mb-3">Warnings to review:</h5>
+                      <div className="space-y-2">
+                        {result.guidelines
+                          .filter(g => g.Status === "WARNING")
+                          .map((guideline, index) => (
+                            <div key={index} className="bg-white p-3 rounded border-l-4 border-yellow-400">
+                              <div className="flex items-start justify-between">
+                                <div className="flex-1">
+                                  <p className="font-medium text-yellow-900">
+                                    {guideline.RuleName || guideline.RuleId}
+                                  </p>
+                                  <p className="text-sm text-yellow-700">
+                                    Category: {guideline.Category} | Severity: {guideline.Severity}
+                                  </p>
+                                  {guideline.Message && (
+                                    <p className="text-sm text-yellow-600 mt-1 italic">
+                                      {guideline.Message}
+                                    </p>
+                                  )}
+                                </div>
+                                <AlertTriangle className="w-5 h-5 text-yellow-500 mt-1" />
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* All Passed */}
+                  {result.guidelines.filter(g => g.Status === "FAILED" || g.Status === "WARNING").length === 0 && 
+                   result.guidelines.length > 0 && (
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
+                      <CheckCircle className="w-8 h-8 text-green-500 mx-auto mb-2" />
+                      <p className="text-green-800 font-medium">
+                        Excellent! All design guidelines passed for this iFlow.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="text-center py-6 text-gray-500">
+                  <Shield className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                  <p>No design guidelines execution results available</p>
+                  {!executed[result.iflowId] && !executing[result.iflowId] && (
+                    <Button
+                      onClick={() => executeDesignGuidelines(result.iflowId, result.version)}
+                      size="sm"
+                      className="mt-3"
+                    >
+                      <Play className="w-4 h-4 mr-1" />
+                      Execute Guidelines
+                    </Button>
+                  )}
+                  {executing[result.iflowId] && (
+                    <p className="text-blue-600 mt-2">
+                      <RefreshCw className="w-4 h-4 inline animate-spin mr-1" />
+                      Executing guidelines...
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center space-x-2">
+            <Shield className="w-5 h-5" />
+            <span>iFlow Validation Results</span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Tabs defaultValue={validationResults[0]?.iflowId} className="w-full">
+            <TabsList
+              className="grid w-full"
+              style={{
+                gridTemplateColumns: `repeat(${validationResults.length}, 1fr)`,
+              }}
+            >
+              {validationResults.map((result) => (
+                <TabsTrigger
+                  key={result.iflowId}
+                  value={result.iflowId}
+                  className="text-sm flex flex-col items-center p-2"
+                >
+                  <span className="truncate">{result.iflowName}</span>
+                  <Badge
+                    className={`text-xs mt-1 ${getComplianceBadgeColor(result.compliancePercentage)}`}
+                  >
+                    {result.compliancePercentage}%
+                  </Badge>
+                </TabsTrigger>
+              ))}
+            </TabsList>
+
+            {validationResults.map((result) => (
+              <TabsContent
+                key={result.iflowId}
+                value={result.iflowId}
+                className="space-y-4"
+              >
+                {/* iFlow Summary */}
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className="font-medium text-gray-900 mb-1">
+                        {result.iflowName}
+                      </h3>
+                      <div className="grid grid-cols-2 gap-4 text-sm text-gray-600">
+                        <p>
+                          <strong>ID:</strong> {result.iflowId}
+                        </p>
+                        <p>
+                          <strong>Version:</strong> {result.version}
+                        </p>
+                        <p>
+                          <strong>Total Rules:</strong> {result.totalRules}
+                        </p>
+                        <p>
+                          <strong>Compliant Rules:</strong>{" "}
+                          {result.compliantRules}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-center">
+                      <div
+                        className={`text-3xl font-bold ${getComplianceColor(result.compliancePercentage)}`}
+                      >
+                        {result.compliancePercentage}%
+                      </div>
+                      <Progress
+                        value={result.compliancePercentage}
+                        className="w-24 mt-2"
+                      />
+                      {!result.hasExecutionHistory && !executed[result.iflowId] && (
+                        <Button
+                          onClick={() =>
+                            executeDesignGuidelines(result.iflowId, result.version)
+                          }
+                          disabled={executing[result.iflowId]}
+                          size="sm"
+                          className="mt-2"
+                        >
+                          {executing[result.iflowId] ? (
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Play className="w-4 h-4" />
+                          )}
+                          <span className="ml-1">
+                            {executing[result.iflowId]
+                              ? "Executing..."
+                              : "Execute"}
+                          </span>
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Guidelines Results */}
+                {result.guidelines.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500">
+                    <Shield className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                    <p>No design guidelines execution history found</p>
+                    <p className="text-sm mt-2">
+                      Click "Execute" to run design guidelines validation
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {result.guidelines.map((guideline, index) => (
+                      <div
+                        key={index}
+                        className="flex items-center justify-between p-3 border rounded-lg"
+                      >
+                        <div className="flex items-center space-x-3">
+                          {getRuleIcon(guideline.Status)}
+                          <div>
+                            <p className="font-medium text-sm">
+                              {guideline.RuleName || guideline.RuleId}
+                            </p>
+                            <p className="text-xs text-gray-600">
+                              {guideline.Category} • {guideline.Severity}
+                            </p>
+                            {guideline.Message && (
+                              <p className="text-xs text-gray-500 mt-1">
+                                {guideline.Message}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <Badge
+                          variant={
+                            guideline.Status === "PASSED"
+                              ? "default"
+                              : guideline.Status === "FAILED"
+                                ? "destructive"
+                                : "secondary"
+                          }
+                        >
+                          {guideline.Status}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </TabsContent>
+            ))}
+          </Tabs>
+        </CardContent>
+      </Card>
+
+      {/* Validation Summary */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Validation Summary</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-sm text-gray-600 mb-2">
+                  <strong>Overall Compliance:</strong> {overallCompliance}%
+                </p>
+                <Progress value={overallCompliance} className="w-full" />
+              </div>
+              <div className="text-right">
+                <p className="text-sm text-gray-600">
+                  <strong>Validation Status:</strong>{" "}
+                  {overallCompliance >= 75 ? (
+                    <span className="text-green-600">✓ Compliant</span>
+                  ) : (
+                    <span className="text-red-600">⚠ Non-Compliant</span>
+                  )}
+                </p>
+              </div>
+            </div>
+
+            {nonCompliantIFlows.length > 0 && (
+              <Alert className="border-red-200 bg-red-50">
+                <AlertCircle className="h-4 w-4 text-red-600" />
+                <AlertTitle className="text-red-800">
+                  Compliance Issues Detected
+                </AlertTitle>
+                <AlertDescription className="text-red-700">
+                  <p className="mb-2">
+                    The following iFlows have compliance issues that should be
+                    addressed:
+                  </p>
+                  <ul className="list-disc list-inside space-y-1">
+                    {nonCompliantIFlows.map((iflow) => (
+                      <li key={iflow.iflowId}>
+                        <strong>{iflow.iflowName}</strong>:{" "}
+                        {iflow.compliancePercentage}% compliant
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-2 font-medium">
+                    ⚠ Consider reviewing and fixing these issues before
+                    proceeding to deployment.
+                  </p>
+                </AlertDescription>
+              </Alert>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Action Buttons */}
+      <div className="flex justify-between pt-4">
         <Button
-          variant="outline"
           onClick={onPrevious}
-          className="flex items-center"
+          variant="outline"
+          className="flex items-center space-x-2"
         >
-          <ArrowRight className="w-4 h-4 mr-2 rotate-180" />
-          Back to Configuration
+          <ArrowLeft className="w-4 h-4" />
+          <span>Previous: Configuration</span>
         </Button>
-        <Button
-          onClick={handleContinue}
-          className="flex items-center"
-          disabled={totalCriticalIssues > 0}
-        >
-          Continue to Dependencies
-          <ArrowRight className="w-4 h-4 ml-2" />
-        </Button>
+
+        <div className="flex space-x-4">
+          <Button
+            onClick={loadValidationResults}
+            variant="outline"
+            className="flex items-center space-x-2"
+          >
+            <RefreshCw className="w-4 h-4" />
+            <span>Refresh Results</span>
+          </Button>
+
+          <Button
+            onClick={handleNext}
+            className="flex items-center space-x-2"
+          >
+            <span>Next: Dependencies (Proceed without validation)</span>
+            <ArrowRight className="w-4 h-4" />
+          </Button>
+        </div>
       </div>
     </div>
   );

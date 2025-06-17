@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   ArrowRight,
   List,
@@ -23,11 +24,12 @@ interface IFlow {
   name: string;
   description: string;
   packageId: string;
+  packageName?: string;
   status: "active" | "draft" | "error";
   lastModified: string;
   version: string;
   author: string;
-  type: "http" | "mail" | "sftp" | "database";
+  type: "integration flow"; // Fixed to always be "integration flow"
 }
 
 interface Stage2Props {
@@ -47,6 +49,7 @@ const Stage2IFlowList: React.FC<Stage2Props> = ({
     data.selectedIFlows || [],
   );
   const [iFlows, setIFlows] = useState<IFlow[]>([]);
+  const [iFlowsByPackage, setIFlowsByPackage] = useState<Record<string, IFlow[]>>({});
   const [filteredIFlows, setFilteredIFlows] = useState<IFlow[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(true);
@@ -60,20 +63,38 @@ const Stage2IFlowList: React.FC<Stage2Props> = ({
     setLoading(true);
     setError(null);
     try {
-      // If specific packages are selected, load iflows for those packages
-      // Otherwise load all iflows
-      const sapIFlows = await PipelineSAPService.getIntegrationFlows();
+      console.log("🔍 [DEBUG] Complete pipeline data:", data);
+      console.log("🔍 [DEBUG] data.selectedPackages:", data.selectedPackages);
 
-      // Filter by selected packages if any
-      let filteredIFlows = sapIFlows;
-      if (data.selectedPackages && data.selectedPackages.length > 0) {
-        filteredIFlows = sapIFlows.filter((iflow) =>
-          data.selectedPackages.includes(iflow.packageId),
-        );
-      }
+      // Pass selected packages to backend so it only fetches flows from those packages
+      const selectedPackageIds =
+        data.selectedPackages && data.selectedPackages.length > 0
+          ? data.selectedPackages
+          : undefined;
 
-      setIFlows(filteredIFlows);
-      setFilteredIFlows(filteredIFlows);
+      console.log(
+        "🔄 Loading integration flows for packages:",
+        selectedPackageIds || "all packages",
+      );
+
+      const sapIFlows =
+        await PipelineSAPService.getIntegrationFlows(selectedPackageIds);
+
+      console.log(`✅ Loaded ${sapIFlows.length} integration flows`);
+
+      setIFlows(sapIFlows);
+      setFilteredIFlows(sapIFlows);
+
+      // Group iFlows by package
+      const groupedByPackage: Record<string, IFlow[]> = {};
+      sapIFlows.forEach((iflow) => {
+        const packageId = iflow.packageId;
+        if (!groupedByPackage[packageId]) {
+          groupedByPackage[packageId] = [];
+        }
+        groupedByPackage[packageId].push(iflow);
+      });
+      setIFlowsByPackage(groupedByPackage);
     } catch (error) {
       console.error("Failed to load iFlows:", error);
 
@@ -102,8 +123,8 @@ const Stage2IFlowList: React.FC<Stage2Props> = ({
   useEffect(() => {
     const filtered = iFlows.filter(
       (iflow) =>
-        iflow.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        iflow.description.toLowerCase().includes(searchTerm.toLowerCase()),
+        iflow.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        iflow.description?.toLowerCase().includes(searchTerm.toLowerCase()),
     );
     setFilteredIFlows(filtered);
   }, [iFlows, searchTerm]);
@@ -114,18 +135,34 @@ const Stage2IFlowList: React.FC<Stage2Props> = ({
       : [...selectedIFlows, iFlowId];
 
     setSelectedIFlows(newSelected);
-    onComplete({ selectedIFlows: newSelected });
+    // Only update local state, don't call onComplete until Next is clicked
   };
 
   const handleSelectAll = () => {
     if (selectedIFlows.length === filteredIFlows.length) {
       setSelectedIFlows([]);
-      onComplete({ selectedIFlows: [] });
     } else {
       const allIds = filteredIFlows.map((iflow) => iflow.id);
       setSelectedIFlows(allIds);
-      onComplete({ selectedIFlows: allIds });
     }
+  };
+
+  const handleNext = () => {
+    // Only proceed to next stage when user explicitly clicks Next button
+    if (selectedIFlows.length === 0) {
+      alert("Please select at least one integration flow before proceeding to configuration.");
+      return;
+    }
+
+    // Ensure data is updated with selected iflows before proceeding
+    const selectedIFlowDetails = iFlows.filter(iflow => selectedIFlows.includes(iflow.id));
+    
+    onComplete({ 
+      ...data,
+      selectedIFlows: selectedIFlows,
+      iflowDetails: selectedIFlowDetails
+    });
+    onNext();
   };
 
   const getStatusIcon = (status: string) => {
@@ -155,18 +192,7 @@ const Stage2IFlowList: React.FC<Stage2Props> = ({
   };
 
   const getTypeIcon = (type: string) => {
-    switch (type) {
-      case "http":
-        return "🌐";
-      case "mail":
-        return "📧";
-      case "sftp":
-        return "📁";
-      case "database":
-        return "🗄️";
-      default:
-        return "⚙️";
-    }
+    return "⚙️"; // Always show gear icon for integration flows
   };
 
   const canProceed = selectedIFlows.length > 0;
@@ -198,11 +224,11 @@ const Stage2IFlowList: React.FC<Stage2Props> = ({
           </Badge>
         </CardTitle>
         <p className="text-sm text-gray-600">
-          Choose the specific integration flows to include in your pipeline.
+          Choose the specific integration flows to include in your pipeline. You can select multiple integration flows.
           {data.selectedPackages && data.selectedPackages.length > 0 ? (
             <span className="text-blue-600 ml-1">
               Showing iFlows from {data.selectedPackages.length} selected
-              package(s).
+              package(s): {data.selectedPackages.join(", ")}.
             </span>
           ) : (
             <span className="text-amber-600 ml-1">
@@ -265,84 +291,134 @@ const Stage2IFlowList: React.FC<Stage2Props> = ({
           </Button>
         </div>
 
-        {/* iFlows List */}
-        <div className="space-y-3 max-h-96 overflow-y-auto">
-          {filteredIFlows.length === 0 ? (
-            <div className="text-center py-8">
-              <List className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-              <p className="text-gray-500">
-                {searchTerm
-                  ? "No integration flows match your search"
-                  : data.selectedPackages && data.selectedPackages.length > 0
-                    ? "No integration flows found in selected packages"
-                    : "No integration flows found"}
-              </p>
-              {searchTerm && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setSearchTerm("")}
-                  className="mt-2"
-                >
-                  Clear search
-                </Button>
-              )}
-            </div>
-          ) : (
-            filteredIFlows.map((iflow) => (
-              <div
-                key={iflow.id}
-                className={`border rounded-lg p-4 transition-colors cursor-pointer ${
-                  selectedIFlows.includes(iflow.id)
-                    ? "border-green-300 bg-green-50"
-                    : "border-gray-200 hover:border-gray-300"
-                }`}
-                onClick={() => handleIFlowToggle(iflow.id)}
-              >
-                <div className="flex items-start space-x-3">
-                  <Checkbox
-                    checked={selectedIFlows.includes(iflow.id)}
-                    onChange={() => handleIFlowToggle(iflow.id)}
-                    className="mt-1"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-2">
-                        {getStatusIcon(iflow.status)}
-                        <h3 className="font-medium text-gray-900 truncate">
-                          {iflow.name}
-                        </h3>
-                      </div>
-                      <div className="flex items-center space-x-2 ml-4">
-                        <span className="text-lg" title={`Type: ${iflow.type}`}>
-                          {getTypeIcon(iflow.type)}
-                        </span>
-                        <Badge className={getStatusBadgeColor(iflow.status)}>
-                          {iflow.status}
-                        </Badge>
-                        <Badge variant="outline" className="text-xs">
-                          v{iflow.version}
-                        </Badge>
-                      </div>
-                    </div>
-                    <p className="text-sm text-gray-600 mt-1 line-clamp-2">
-                      {iflow.description}
-                    </p>
-                    <div className="flex items-center space-x-4 mt-2 text-xs text-gray-500">
-                      <span>Package: {iflow.packageId}</span>
-                      <span>
-                        Modified:{" "}
-                        {new Date(iflow.lastModified).toLocaleDateString()}
-                      </span>
-                      <span>Author: {iflow.author}</span>
-                      <span>Type: {iflow.type}</span>
-                    </div>
-                  </div>
-                </div>
+        {/* iFlows by Package Tabs */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <List className="w-5 h-5" />
+              <span>Integration Flows by Package</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {Object.keys(iFlowsByPackage).length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                <List className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                <p>No integration flows available</p>
+                <p className="text-sm">Please ensure packages are selected in the previous stage</p>
               </div>
-            ))
-          )}
-        </div>
+            ) : (
+              <Tabs
+                defaultValue={Object.keys(iFlowsByPackage)[0]}
+                className="w-full"
+              >
+                <TabsList
+                  className="grid w-full"
+                  style={{
+                    gridTemplateColumns: `repeat(${Object.keys(iFlowsByPackage).length}, 1fr)`,
+                  }}
+                >
+                  {Object.keys(iFlowsByPackage).map((packageId) => (
+                    <TabsTrigger
+                      key={packageId}
+                      value={packageId}
+                      className="text-sm"
+                    >
+                      <div className="flex flex-col items-center">
+                        <span className="truncate">{packageId}</span>
+                        <Badge variant="secondary" className="mt-1 text-xs">
+                          {iFlowsByPackage[packageId].length} iFlows
+                        </Badge>
+                      </div>
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+
+                {Object.entries(iFlowsByPackage).map(([packageId, packageIFlows]) => (
+                  <TabsContent
+                    key={packageId}
+                    value={packageId}
+                    className="space-y-3"
+                  >
+                    <div className="bg-gray-50 p-4 rounded-lg">
+                      <h3 className="font-medium text-gray-900 mb-2">
+                        Package: {packageId}
+                      </h3>
+                      <div className="grid grid-cols-2 gap-4 text-sm text-gray-600">
+                        <p>
+                          <strong>iFlows Available:</strong> {packageIFlows.length}
+                        </p>
+                        <p>
+                          <strong>Selected from this package:</strong> {packageIFlows.filter(iflow => selectedIFlows.includes(iflow.id)).length}
+                        </p>
+                      </div>
+                    </div>
+
+                    {packageIFlows.length === 0 ? (
+                      <div className="text-center py-8 text-gray-500">
+                        <List className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                        <p>No integration flows found in this package</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3 max-h-96 overflow-y-auto">
+                        {packageIFlows.map((iflow) => (
+                          <div
+                            key={iflow.id}
+                            className={`border rounded-lg p-4 transition-colors cursor-pointer ${
+                              selectedIFlows.includes(iflow.id)
+                                ? "border-green-300 bg-green-50"
+                                : "border-gray-200 hover:border-gray-300"
+                            }`}
+                            onClick={() => handleIFlowToggle(iflow.id)}
+                          >
+                            <div className="flex items-start space-x-3">
+                              <Checkbox
+                                checked={selectedIFlows.includes(iflow.id)}
+                                onChange={() => handleIFlowToggle(iflow.id)}
+                                className="mt-1"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center space-x-2">
+                                    {getStatusIcon(iflow.status)}
+                                    <h3 className="font-medium text-gray-900 truncate">
+                                      {iflow.name}
+                                    </h3>
+                                  </div>
+                                  <div className="flex items-center space-x-2 ml-4">
+                                    <span className="text-lg" title={`Type: ${iflow.type}`}>
+                                      {getTypeIcon(iflow.type)}
+                                    </span>
+                                    <Badge className={getStatusBadgeColor(iflow.status)}>
+                                      {iflow.status}
+                                    </Badge>
+                                    <Badge variant="outline" className="text-xs">
+                                      v{iflow.version}
+                                    </Badge>
+                                  </div>
+                                </div>
+                                <p className="text-sm text-gray-600 mt-1 line-clamp-2">
+                                  {iflow.description}
+                                </p>
+                                <div className="flex items-center space-x-4 mt-2 text-xs text-gray-500">
+                                  <span>
+                                    Modified:{" "}
+                                    {new Date(iflow.lastModified).toLocaleDateString()}
+                                  </span>
+                                  <span>Author: {iflow.author}</span>
+                                  <span>Type: Integration Flow</span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </TabsContent>
+                ))}
+              </Tabs>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Selection Summary */}
         {selectedIFlows.length > 0 && (
@@ -352,6 +428,9 @@ const Stage2IFlowList: React.FC<Stage2Props> = ({
               {selectedIFlows.length === 1 ? "" : "s"} selected for CI/CD
               pipeline
             </p>
+            <div className="text-xs text-green-600 mt-1">
+              Selected: {selectedIFlows.join(", ")}
+            </div>
           </div>
         )}
 
@@ -372,11 +451,11 @@ const Stage2IFlowList: React.FC<Stage2Props> = ({
             )}
           </div>
           <Button
-            onClick={onNext}
+            onClick={handleNext}
             disabled={!canProceed}
             className="flex items-center space-x-2"
           >
-            <span>Next: Configuration</span>
+            <span>Next: Configuration ({selectedIFlows.length} iFlow{selectedIFlows.length === 1 ? '' : 's'} selected)</span>
             <ArrowRight className="w-4 h-4" />
           </Button>
         </div>

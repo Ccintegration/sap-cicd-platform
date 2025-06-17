@@ -25,6 +25,28 @@ interface SAPIFlow {
   type: "http" | "mail" | "sftp" | "database";
 }
 
+// Define the SAP API response structure for integration flows
+interface SAPIntegrationFlowResponse {
+  Id?: string;
+  id?: string;
+  Name?: string;
+  name?: string;
+  Description?: string;
+  description?: string;
+  Version?: string;
+  version?: string;
+  PackageId?: string;
+  packageId?: string;
+  ModifiedBy?: string;
+  modifiedBy?: string;
+  CreatedBy?: string;
+  createdBy?: string;
+  ModifiedAt?: string;
+  modifiedDate?: string;
+  CreatedAt?: string;
+  createdDate?: string;
+}
+
 export class PipelineSAPService {
   /**
    * Get the base tenant (registered SAP Integration Suite tenant)
@@ -38,14 +60,18 @@ export class PipelineSAPService {
    * Transform backend IntegrationPackage to pipeline format
    */
   private static transformPackage(pkg: IntegrationPackage): SAPPackage {
+    // Handle different possible field names from SAP API
+    const modifiedDate = (pkg as any).modifiedDate || (pkg as any).lastModified || (pkg as any).ModifiedDate || new Date().toISOString();
+    const modifiedBy = (pkg as any).modifiedBy || (pkg as any).author || (pkg as any).ModifiedBy || (pkg as any).createdBy || (pkg as any).CreatedBy || "SAP User";
+    
     return {
       id: pkg.id,
       name: pkg.name,
       description: pkg.description || "No description available",
       version: pkg.version || "1.0.0",
-      lastModified: pkg.modifiedDate || new Date().toISOString(),
-      author: pkg.modifiedBy || "SAP User",
-      iflowCount: 0, // This will be calculated when needed
+      lastModified: modifiedDate,
+      author: modifiedBy,
+      iflowCount: 0, // This will be updated by the calling function
       status: "active" as const,
     };
   }
@@ -53,22 +79,51 @@ export class PipelineSAPService {
   /**
    * Transform backend IntegrationFlow to pipeline format
    */
-  private static transformIFlow(iflow: IntegrationFlow): SAPIFlow {
-    return {
-      id: iflow.id,
-      name: iflow.name,
-      packageId: iflow.packageId || "",
-      description: iflow.description || "No description available",
-      version: iflow.version || "1.0.0",
-      status: "active" as const,
-      lastModified: iflow.modifiedDate || new Date().toISOString(),
-      author: iflow.modifiedBy || "SAP User",
-      type: this.determineFlowType(iflow.name, iflow.description),
+  private static transformIFlow(iflow: SAPIntegrationFlowResponse): SAPIFlow {
+    // SAP API returns fields with uppercase names (Id, Name, Description, etc.)
+    const id = iflow.Id || iflow.id || "";
+    const name = iflow.Name || iflow.name || "Unnamed Integration Flow";
+    const description =
+      iflow.Description || iflow.description || "No description available";
+    const version = iflow.Version || iflow.version || "1.0.0";
+    const packageId = iflow.PackageId || iflow.packageId || "";
+    const modifiedBy =
+      iflow.ModifiedBy ||
+      iflow.modifiedBy ||
+      iflow.CreatedBy ||
+      iflow.createdBy ||
+      "SAP User";
+    const modifiedAt =
+      iflow.ModifiedAt ||
+      iflow.modifiedDate ||
+      iflow.CreatedAt ||
+      iflow.createdDate ||
+      new Date().toISOString();
+
+    // Convert timestamp to readable date if it's a timestamp
+    let lastModified = modifiedAt;
+    if (typeof modifiedAt === "string" && /^\d+$/.test(modifiedAt)) {
+      // It's a timestamp like "1746621043166"
+      lastModified = new Date(parseInt(modifiedAt)).toISOString();
+    }
+
+    const transformed: SAPIFlow = {
+      id,
+      name,
+      packageId,
+      description,
+      version,
+      status: "active" as const, // SAP doesn't provide status in design-time artifacts
+      lastModified,
+      author: modifiedBy,
+      type: PipelineSAPService.determineFlowType(name, description),
     };
+
+    return transformed;
   }
 
   /**
-   * Helper method to determine flow type from name/description
+   * Helper method to determine flow type from name/description and SAP data
    */
   private static determineFlowType(
     name: string,
@@ -76,21 +131,44 @@ export class PipelineSAPService {
   ): "http" | "mail" | "sftp" | "database" {
     const text = (name + " " + description).toLowerCase();
 
-    if (text.includes("mail") || text.includes("email")) return "mail";
-    if (text.includes("sftp") || text.includes("ftp") || text.includes("file"))
+    // Check for specific patterns in SAP integration flows
+    if (
+      text.includes("mail") ||
+      text.includes("email") ||
+      text.includes("smtp")
+    )
+      return "mail";
+    if (
+      text.includes("sftp") ||
+      text.includes("ftp") ||
+      text.includes("file") ||
+      text.includes("csv")
+    )
       return "sftp";
     if (
       text.includes("database") ||
       text.includes("db") ||
-      text.includes("sql")
+      text.includes("sql") ||
+      text.includes("hana") ||
+      text.includes("s4") ||
+      text.includes("erp")
     )
       return "database";
+    if (
+      text.includes("soap") ||
+      text.includes("rest") ||
+      text.includes("api") ||
+      text.includes("http") ||
+      text.includes("odata")
+    )
+      return "http";
 
-    return "http"; // Default
+    // Default to http for most SAP integrations
+    return "http";
   }
 
   /**
-   * Get all integration packages from backend API
+   * Get all integration packages from backend API with iflow counts
    */
   static async getIntegrationPackages(): Promise<SAPPackage[]> {
     try {
@@ -127,8 +205,38 @@ export class PipelineSAPService {
         `✅ Successfully fetched ${packages.length} packages from SAP`,
       );
 
-      // Transform to pipeline format
-      const transformedPackages = packages.map(this.transformPackage);
+      // Get all iflows once and count them per package
+      console.log("📊 Calculating iflow counts for packages...");
+      const iflowCounts: Record<string, number> = {};
+
+      try {
+        // Fetch all iflows in one call (more efficient)
+        const allIFlows = await backendClient.getIntegrationFlows();
+
+        // Count iflows per package
+        allIFlows.forEach((iflow: SAPIntegrationFlowResponse) => {
+          const packageId = iflow.PackageId || iflow.packageId || "";
+          if (packageId) {
+            iflowCounts[packageId] = (iflowCounts[packageId] || 0) + 1;
+          }
+        });
+
+        console.log(`📊 Found iflows in packages:`, iflowCounts);
+      } catch (error) {
+        console.warn("Failed to fetch iflows for counting:", error);
+        // Will use default count of 0 for all packages
+      }
+
+      // Transform packages and add calculated iflow counts
+      const transformedPackages = packages.map((pkg) => {
+        const transformed = PipelineSAPService.transformPackage(pkg);
+        transformed.iflowCount = iflowCounts[pkg.id] || 0;
+        return transformed;
+      });
+
+      console.log(
+        `📊 Successfully calculated iflow counts for ${transformedPackages.length} packages`,
+      );
 
       return transformedPackages;
     } catch (error) {
@@ -154,11 +262,20 @@ export class PipelineSAPService {
   /**
    * Get integration flows from backend API
    */
-  static async getIntegrationFlows(packageId?: string): Promise<SAPIFlow[]> {
+  static async getIntegrationFlows(packageIds?: string[]): Promise<SAPIFlow[]> {
     try {
       console.log(
-        "🔄 Fetching integration flows from backend API → SAP Systems...",
+        "🔍 [DEBUG] getIntegrationFlows called with packageIds:",
+        packageIds,
       );
+
+      if (packageIds && packageIds.length > 0) {
+        console.log(
+          `🔄 Fetching integration flows from ${packageIds.length} selected packages: ${packageIds.join(", ")}`,
+        );
+      } else {
+        console.log("🔄 Fetching integration flows from all packages...");
+      }
 
       // First verify we have a registered tenant
       const baseTenant = await this.getBaseTenant();
@@ -182,23 +299,17 @@ export class PipelineSAPService {
 
       console.log(`🔗 Using backend URL: ${currentBackendUrl}`);
 
-      // Fetch iFlows through backend API
-      const iflows = await backendClient.getIntegrationFlows();
+      // Fetch iFlows through backend API with package filter
+      const iflows = await backendClient.getIntegrationFlows(packageIds);
 
-      console.log(`✅ Successfully fetched ${iflows.length} iFlows from SAP`);
+      console.log(
+        `✅ Successfully fetched ${iflows.length} iFlows from SAP${packageIds ? ` (from ${packageIds.length} selected packages)` : ""}`,
+      );
 
       // Transform to pipeline format
-      let transformedIFlows = iflows.map(this.transformIFlow);
-
-      // Filter by package if specified
-      if (packageId) {
-        transformedIFlows = transformedIFlows.filter(
-          (iflow) => iflow.packageId === packageId,
-        );
-        console.log(
-          `🔍 Filtered to ${transformedIFlows.length} iFlows for package: ${packageId}`,
-        );
-      }
+      const transformedIFlows = iflows.map((iflow: SAPIntegrationFlowResponse) => 
+        this.transformIFlow(iflow)
+      );
 
       return transformedIFlows;
     } catch (error) {
@@ -227,7 +338,13 @@ export class PipelineSAPService {
   static async testConnection(): Promise<{
     success: boolean;
     message: string;
-    tenantInfo?: any;
+    tenantInfo?: {
+      name: string;
+      baseUrl: string;
+      packageCount: number;
+      iflowCount: number;
+      connectionType: string;
+    };
   }> {
     try {
       // First verify we have a registered tenant
