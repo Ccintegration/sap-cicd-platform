@@ -1,5 +1,5 @@
 """
-SAP Integration Suite API Client
+SAP Integration Suite API Client - Updated with correct design guidelines APIs
 Handles authentication and API calls to SAP Integration Suite
 """
 
@@ -185,33 +185,315 @@ class SAPClient:
             logger.warning("Returning demo data due to API failure")
             return demo_packages
 
-    async def get_integration_flows(self) -> List[Dict[str, Any]]:
-        """Fetch all integration flows from SAP"""
+    async def get_integration_flows(self, selected_package_ids: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+        """Fetch integration flows from SAP by iterating through packages
+
+        Args:
+            selected_package_ids: List of specific package IDs to fetch flows from. If None, fetches from all packages.
+        """
         try:
-            logger.info("Fetching integration flows from SAP")
-            
-            # Use single quotes for OData filter value, encoded as %27
-            filter_param = "$filter=Type eq %27IntegrationFlow%27"
-            url = f"{self.base_url}/api/v1/IntegrationDesigntimeArtifacts?{filter_param}"
-            
+            if selected_package_ids:
+                logger.info(f"Fetching integration flows from {len(selected_package_ids)} selected packages: {selected_package_ids}")
+                # Create package objects for selected IDs
+                packages_to_scan = []
+                for pkg_id in selected_package_ids:
+                    # Create a minimal package object with just the ID we need
+                    packages_to_scan.append(type('Package', (), {'id': pkg_id, 'name': f'Package_{pkg_id}'})())
+            else:
+                logger.info("Fetching integration flows from all packages")
+                # Get all integration packages
+                packages_to_scan = await self.get_integration_packages()
+                logger.info(f"Found {len(packages_to_scan)} packages to scan for integration flows")
+
+            all_flows = []
             headers = await self._get_auth_headers()
+
             async with httpx.AsyncClient() as client:
-                response = await client.get(url, headers=headers)
-                
-                if response.status_code != 200:
-                    error_msg = f"API request failed: {response.status_code} - {response.text}"
-                    logger.error(error_msg)
-                    raise Exception(error_msg)
-                
-                data = response.json()
-                flows = data.get("d", {}).get("results", [])
-                logger.info(f"Successfully fetched {len(flows)} integration flows")
-                return flows
-                
+                # Iterate through each package to get its integration flows
+                for package in packages_to_scan:
+                    package_id = package.id
+                    try:
+                        # Use the working API approach from reference code
+                        url = f"{self.base_url}/api/v1/IntegrationPackages('{package_id}')/IntegrationDesigntimeArtifacts"
+                        logger.info(f"Fetching flows from package: {package_id}")
+
+                        response = await client.get(url, headers=headers)
+
+                        if response.status_code == 200:
+                            data = response.json()
+                            flows = data.get("d", {}).get("results", [])
+
+                            # Add package information to each flow
+                            for flow in flows:
+                                flow["packageId"] = package_id
+                                flow["packageName"] = getattr(package, 'name', f'Package_{package_id}')
+
+                            all_flows.extend(flows)
+                            logger.info(f"Found {len(flows)} flows in package {package_id}")
+                        else:
+                            logger.warning(f"Failed to get flows from package {package_id}: {response.status_code}")
+
+                    except Exception as pkg_error:
+                        logger.warning(f"Error fetching flows from package {package_id}: {str(pkg_error)}")
+                        continue
+
+                logger.info(f"Successfully fetched {len(all_flows)} integration flows from {len(packages_to_scan)} packages")
+                return all_flows
+
         except Exception as e:
             error_msg = f"Failed to fetch integration flows: {str(e)}"
             logger.error(error_msg)
             raise Exception(error_msg)
+
+    async def get_iflow_configurations(self, iflow_id: str, version: str) -> List[Dict[str, Any]]:
+        """Get configuration parameters for a specific integration flow"""
+        try:
+            logger.info(f"Fetching configurations for iFlow: {iflow_id}, version: {version}")
+
+            # SAP API: /IntegrationDesigntimeArtifacts(Id='{iflow_id}',Version='{version}')/Configurations
+            url = f"{self.base_url}/api/v1/IntegrationDesigntimeArtifacts(Id='{iflow_id}',Version='{version}')/Configurations"
+
+            headers = await self._get_auth_headers()
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, headers=headers)
+
+                if response.status_code == 200:
+                    data = response.json()
+                    configurations = data.get("d", {}).get("results", [])
+                    logger.info(f"Found {len(configurations)} configuration parameters for {iflow_id}")
+                    return configurations
+                else:
+                    logger.warning(f"Failed to get configurations for {iflow_id}: {response.status_code}")
+                    return []
+
+        except Exception as e:
+            logger.error(f"Error fetching configurations for {iflow_id}: {str(e)}")
+            return []
+
+    async def execute_design_guidelines(self, iflow_id: str, version: str) -> Dict[str, Any]:
+        """Execute design guidelines for a specific integration flow"""
+        try:
+            logger.info(f"Executing design guidelines for iFlow: {iflow_id}, version: {version}")
+
+            # SAP API: POST to execute design guidelines
+            url = f"{self.base_url}/api/v1/ExecuteIntegrationDesigntimeArtifactsGuidelines?Id='{iflow_id}'&Version='{version}'"
+
+            headers = await self._get_auth_headers()
+            headers["Content-Type"] = "application/json"
+
+            async with httpx.AsyncClient() as client:
+                response = await client.post(url, headers=headers, json={})
+
+                if response.status_code in [200, 201, 202]:
+                    # Try to extract execution ID from response
+                    execution_id = None
+                    response_data = {}
+                    
+                    try:
+                        response_data = response.json()
+                        # The execution ID might be in different locations depending on SAP's response format
+                        execution_id = (response_data.get("d", {}).get("Id") or 
+                                    response_data.get("Id") or 
+                                    response.headers.get("Location", "").split("'")[-2] if "'" in response.headers.get("Location", "") else None)
+                    except:
+                        pass
+
+                    logger.info(f"Successfully triggered design guidelines execution for {iflow_id}, execution_id: {execution_id}")
+                    return {
+                        "status": "executed", 
+                        "message": "Design guidelines execution started",
+                        "execution_id": execution_id,
+                        "iflow_id": iflow_id,
+                        "version": version
+                    }
+                else:
+                    logger.warning(f"Failed to execute design guidelines for {iflow_id}: {response.status_code}")
+                    return {"status": "failed", "message": f"Failed to execute: {response.status_code}"}
+
+        except Exception as e:
+            logger.error(f"Error executing design guidelines for {iflow_id}: {str(e)}")
+            return {"status": "error", "message": str(e)}
+
+    async def get_design_guidelines(self, iflow_id: str, version: str, execution_id: str = None) -> Dict[str, Any]:
+        """Get design guidelines execution results for a specific integration flow"""
+        try:
+            logger.info(f"Fetching design guidelines for iFlow: {iflow_id}, version: {version}, execution_id: {execution_id}")
+
+            headers = await self._get_auth_headers()
+            
+            async with httpx.AsyncClient() as client:
+                # If execution_id is provided, use it directly
+                if execution_id:
+                    logger.info(f"Using provided execution_id: {execution_id}")
+                    detailed_url = f"{self.base_url}/api/v1/IntegrationDesigntimeArtifacts(Id='{iflow_id}',Version='{version}')/DesignGuidelineExecutionResults('{execution_id}')?$expand=DesignGuidelines&$format=json"
+                    detailed_response = await client.get(detailed_url, headers=headers)
+                    
+                    if detailed_response.status_code == 200:
+                        detailed_data = detailed_response.json()
+                        guidelines = detailed_data.get("d", {}).get("DesignGuidelines", {}).get("results", [])
+                        
+                        # Calculate compliance
+                        total_rules = len(guidelines)
+                        compliant_rules = len([g for g in guidelines if g.get("Status") == "PASSED"])
+                        compliance_percentage = (compliant_rules / total_rules * 100) if total_rules > 0 else 0
+
+                        return {
+                            "guidelines": guidelines,
+                            "total_rules": total_rules,
+                            "compliant_rules": compliant_rules,
+                            "compliance_percentage": compliance_percentage,
+                            "is_compliant": compliance_percentage >= 75,
+                            "execution_id": execution_id,
+                            "last_executed": detailed_data.get("d", {}).get("ExecutionDate", "")
+                        }
+                
+                # Fallback: Get the latest execution results
+                url = f"{self.base_url}/api/v1/IntegrationDesigntimeArtifacts(Id='{iflow_id}',Version='{version}')/DesignGuidelineExecutionResults?$orderby=ExecutionDate desc&$top=1"
+                response = await client.get(url, headers=headers)
+
+                if response.status_code == 200:
+                    data = response.json()
+                    execution_results = data.get("d", {}).get("results", [])
+                    
+                    if execution_results:
+                        latest_execution = execution_results[0]
+                        latest_execution_id = latest_execution.get("Id", "")
+                        
+                        if latest_execution_id:
+                            # Get detailed guidelines for the latest execution
+                            detailed_url = f"{self.base_url}/api/v1/IntegrationDesigntimeArtifacts(Id='{iflow_id}',Version='{version}')/DesignGuidelineExecutionResults('{latest_execution_id}')?$expand=DesignGuidelines&$format=json"
+                            detailed_response = await client.get(detailed_url, headers=headers)
+                            
+                            if detailed_response.status_code == 200:
+                                detailed_data = detailed_response.json()
+                                guidelines = detailed_data.get("d", {}).get("DesignGuidelines", {}).get("results", [])
+                                
+                                # Calculate compliance
+                                total_rules = len(guidelines)
+                                compliant_rules = len([g for g in guidelines if g.get("Status") == "PASSED"])
+                                compliance_percentage = (compliant_rules / total_rules * 100) if total_rules > 0 else 0
+
+                                return {
+                                    "guidelines": guidelines,
+                                    "total_rules": total_rules,
+                                    "compliant_rules": compliant_rules,
+                                    "compliance_percentage": compliance_percentage,
+                                    "is_compliant": compliance_percentage >= 75,
+                                    "execution_id": latest_execution_id,
+                                    "last_executed": latest_execution.get("ExecutionDate", "")
+                                }
+
+                logger.warning(f"No design guidelines found for {iflow_id}")
+                return {
+                    "guidelines": [], 
+                    "total_rules": 0, 
+                    "compliant_rules": 0, 
+                    "compliance_percentage": 0, 
+                    "is_compliant": False, 
+                    "execution_id": None
+                }
+
+        except Exception as e:
+            logger.error(f"Error fetching design guidelines for {iflow_id}: {str(e)}")
+            return {
+                "guidelines": [], 
+                "total_rules": 0, 
+                "compliant_rules": 0, 
+                "compliance_percentage": 0, 
+                "is_compliant": False, 
+                "execution_id": None
+            }
+    async def get_iflow_resources(self, iflow_id: str, version: str) -> List[Dict[str, Any]]:
+        """Get resources/dependencies for a specific integration flow"""
+        try:
+            logger.info(f"Fetching resources for iFlow: {iflow_id}, version: {version}")
+
+            # SAP API: /IntegrationDesigntimeArtifacts(Id='{iflow_id}',Version='{version}')/Resources
+            url = f"{self.base_url}/api/v1/IntegrationDesigntimeArtifacts(Id='{iflow_id}',Version='{version}')/Resources"
+
+            headers = await self._get_auth_headers()
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, headers=headers)
+
+                if response.status_code == 200:
+                    data = response.json()
+                    resources = data.get("d", {}).get("results", [])
+
+                    # Categorize resources
+                    categorized_resources = {
+                        "value_mappings": [],
+                        "groovy_scripts": [],
+                        "message_mappings": [],
+                        "external_services": [],
+                        "process_direct": [],
+                        "other": []
+                    }
+
+                    for resource in resources:
+                        resource_type = resource.get("ResourceType", "").lower()
+                        resource_name = resource.get("Name", "")
+
+                        if "valuemapping" in resource_type or "value_mapping" in resource_name.lower():
+                            categorized_resources["value_mappings"].append(resource)
+                        elif "groovy" in resource_type or resource_name.endswith(".groovy"):
+                            categorized_resources["groovy_scripts"].append(resource)
+                        elif "mapping" in resource_type or "mmap" in resource_type:
+                            categorized_resources["message_mappings"].append(resource)
+                        elif "processdirect" in resource_name.lower():
+                            categorized_resources["process_direct"].append(resource)
+                        elif "http" in resource_name.lower() or "soap" in resource_name.lower():
+                            categorized_resources["external_services"].append(resource)
+                        else:
+                            categorized_resources["other"].append(resource)
+
+                    logger.info(f"Found {len(resources)} resources for {iflow_id}")
+                    return categorized_resources
+                else:
+                    logger.warning(f"Failed to get resources for {iflow_id}: {response.status_code}")
+                    return {"value_mappings": [], "groovy_scripts": [], "message_mappings": [], "external_services": [], "process_direct": [], "other": []}
+
+        except Exception as e:
+            logger.error(f"Error fetching resources for {iflow_id}: {str(e)}")
+            return {"value_mappings": [], "groovy_scripts": [], "message_mappings": [], "external_services": [], "process_direct": [], "other": []}
+
+    async def deploy_iflow(self, iflow_id: str, version: str, target_environment: str) -> Dict[str, Any]:
+        """Deploy integration flow to runtime"""
+        try:
+            logger.info(f"Deploying iFlow: {iflow_id}, version: {version} to {target_environment}")
+
+            # SAP API: POST /DeployIntegrationDesigntimeArtifact
+            url = f"{self.base_url}/api/v1/DeployIntegrationDesigntimeArtifact"
+
+            headers = await self._get_auth_headers()
+            headers["Content-Type"] = "application/json"
+
+            deploy_payload = {
+                "Id": iflow_id,
+                "Version": version
+            }
+
+            async with httpx.AsyncClient() as client:
+                response = await client.post(url, headers=headers, json=deploy_payload)
+
+                if response.status_code == 202:
+                    logger.info(f"Successfully triggered deployment for {iflow_id}")
+                    return {
+                        "status": "deployed",
+                        "message": f"Deployment started for {iflow_id}",
+                        "target_environment": target_environment,
+                        "deployment_id": response.headers.get("Location", "")
+                    }
+                else:
+                    logger.warning(f"Failed to deploy {iflow_id}: {response.status_code}")
+                    return {
+                        "status": "failed",
+                        "message": f"Deployment failed: {response.status_code}",
+                        "target_environment": target_environment
+                    }
+
+        except Exception as e:
+            logger.error(f"Error deploying {iflow_id}: {str(e)}")
+            return {"status": "error", "message": str(e), "target_environment": target_environment}
 
     async def get_package_details(self, package_id: str) -> Dict[str, Any]:
         """Get detailed information about a specific package"""
@@ -263,11 +545,22 @@ class SAPClient:
             "token_type": self.token_info.token_type
         }
 
+    async def test_connection(self) -> bool:
+        """Test connection to SAP Integration Suite"""
+        try:
+            await self.get_token()
+            # Try to fetch packages as a connection test
+            await self.get_integration_packages()
+            return True
+        except Exception as e:
+            logger.error(f"Connection test failed: {str(e)}")
+            return False
+
     async def _get_auth_headers(self) -> Dict[str, str]:
         """Get authentication headers for SAP API requests"""
         if not self.oauth_token or self._is_token_expired():
             await self._refresh_token()
-        
+
         return {
             "Authorization": f"Bearer {self.oauth_token}",
             "Accept": "application/json"
@@ -279,7 +572,7 @@ class SAPClient:
             logger.info("Requesting new access token from SAP")
             auth = (self.client_id, self.client_secret)
             data = {"grant_type": "client_credentials"}
-            
+
             async with httpx.AsyncClient() as client:
                 response = await client.post(
                     self.token_url,
@@ -287,13 +580,13 @@ class SAPClient:
                     data=data
                 )
                 response.raise_for_status()
-                
+
                 token_data = response.json()
                 self.oauth_token = token_data["access_token"]
                 expires_in = int(token_data["expires_in"])
                 self.token_expiry = datetime.now() + timedelta(seconds=expires_in)
                 logger.info("Successfully obtained access token")
-                
+
         except Exception as e:
             error_msg = f"Failed to refresh OAuth token: {str(e)}"
             logger.error(error_msg)

@@ -7,19 +7,6 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 
 # Tenant Models
-class OAuthCredentials(BaseModel):
-    clientId: str = Field(..., description="OAuth Client ID")
-    clientSecret: str = Field(..., description="OAuth Client Secret")
-    tokenUrl: str = Field(..., description="OAuth Token URL")
-
-class TenantFormData(BaseModel):
-    name: str = Field(..., description="Tenant name")
-    description: Optional[str] = Field(None, description="Tenant description")
-    base_url: str = Field(..., description="SAP Integration Suite base URL")
-    client_id: str = Field(..., description="OAuth Client ID")
-    client_secret: str = Field(..., description="OAuth Client Secret")
-    token_url: str = Field(..., description="OAuth Token URL")
-
 class ConnectionTestResult(BaseModel):
     success: bool = Field(..., description="Whether the connection test was successful")
     message: str = Field(..., description="Connection test result message")
@@ -60,18 +47,6 @@ class TokenInfo(BaseModel):
     expires_at: Optional[datetime] = Field(None, description="Token expiration timestamp")
 
 # API Response Models
-class APIError(BaseModel):
-    error: str = Field(..., description="Error message")
-    details: Optional[str] = Field(None, description="Error details")
-    timestamp: str = Field(default_factory=lambda: datetime.now().isoformat())
-
-class PaginatedResponse(BaseModel):
-    items: List[Any] = Field(..., description="Response items")
-    total: int = Field(..., description="Total count")
-    page: int = Field(1, description="Current page")
-    size: int = Field(50, description="Page size")
-    has_next: bool = Field(False, description="Has next page")
-
 class APIResponse(BaseModel):
     success: bool
     data: Optional[Any] = None
@@ -85,17 +60,3 @@ class TenantConfig(BaseModel):
     token_url: str
     base_url: str
     auth_url: Optional[str] = None
-
-class IntegrationPackage(BaseModel):
-    id: str
-    name: str
-    version: Optional[str] = None
-    description: Optional[str] = None
-    shortText: Optional[str] = None
-    vendor: Optional[str] = None
-    mode: Optional[str] = None
-    supportedPlatform: Optional[str] = None
-    products: Optional[List[str]] = None
-    keywords: Optional[List[str]] = None
-    countries: Optional[List[str]] = None
-    lastModified: Optional[datetime] = None

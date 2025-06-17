@@ -1,5 +1,5 @@
 """
-FastAPI Backend Proxy for SAP Integration Suite
+FastAPI Backend Proxy for SAP Integration Suite - Updated with correct design guidelines APIs
 Handles authentication, token management, and API proxying
 """
 
@@ -56,7 +56,7 @@ async def startup_event():
     """Initialize SAP client on startup"""
     global sap_client
     settings = get_settings()
-    
+
     # Initialize with CCCI_SANDBOX credentials
     credentials = SAPCredentials(
         client_id=settings.sap_client_id,
@@ -64,7 +64,7 @@ async def startup_event():
         token_url=settings.sap_token_url,
         base_url=settings.sap_base_url
     )
-    
+
     sap_client = SAPClient(credentials)
     logger.info("SAP Client initialized successfully")
 
@@ -82,7 +82,7 @@ async def root():
 async def health_check():
     """Detailed health check"""
     global sap_client
-    
+
     health_status = {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
@@ -91,7 +91,7 @@ async def health_check():
             "sap_connection": "unknown"
         }
     }
-    
+
     # Test SAP connection
     if sap_client:
         try:
@@ -101,7 +101,7 @@ async def health_check():
         except Exception as e:
             health_status["services"]["sap_connection"] = "error"
             health_status["sap_error"] = str(e)
-    
+
     return health_status
 
 # Tenant Management Endpoints
@@ -111,7 +111,7 @@ async def test_tenant_connection(tenant_config: TenantConfig) -> ConnectionTestR
     """Test connection to SAP tenant with provided credentials"""
     try:
         logger.info(f"Testing connection for tenant: {tenant_config.name}")
-        
+
         # Create temporary SAP client with provided credentials
         credentials = SAPCredentials(
             client_id=tenant_config.client_id,
@@ -119,17 +119,17 @@ async def test_tenant_connection(tenant_config: TenantConfig) -> ConnectionTestR
             token_url=tenant_config.token_url,
             base_url=tenant_config.base_url
         )
-        
+
         temp_client = SAPClient(credentials)
-        
+
         # Test authentication
         start_time = datetime.now()
         token = await temp_client.get_access_token()
         response_time = (datetime.now() - start_time).total_seconds() * 1000
-        
+
         # Test API accessibility
         packages = await temp_client.get_integration_packages()
-        
+
         return ConnectionTestResult(
             success=True,
             message="Connection successful! SAP Integration Suite is accessible.",
@@ -141,7 +141,7 @@ async def test_tenant_connection(tenant_config: TenantConfig) -> ConnectionTestR
                 "test_timestamp": datetime.now().isoformat()
             }
         )
-        
+
     except Exception as e:
         logger.error(f"Connection test failed: {str(e)}")
         return ConnectionTestResult(
@@ -162,10 +162,10 @@ async def test_tenant_connection(tenant_config: TenantConfig) -> ConnectionTestR
 async def get_packages():
     """Get all Integration Packages from SAP Integration Suite"""
     global sap_client
-    
+
     if not sap_client:
         raise HTTPException(status_code=500, detail="SAP client not initialized")
-    
+
     try:
         logger.info("Fetching Integration Packages from SAP")
         packages = await sap_client.get_integration_packages()
@@ -181,25 +181,191 @@ async def get_packages():
             detail=str(e)
         )
 
-@app.get("/api/sap/iflows")
-async def get_integration_flows() -> APIResponse:
-    """Get all Integration Flows from SAP Integration Suite"""
+@app.get("/api/sap/iflows/{iflow_id}/configurations")
+async def get_iflow_configurations(iflow_id: str, version: str) -> APIResponse:
+    """Get configuration parameters for a specific integration flow"""
     global sap_client
-    
+
     if not sap_client:
         raise HTTPException(status_code=500, detail="SAP client not initialized")
-    
+
     try:
-        logger.info("Fetching Integration Flows from SAP")
-        iflows = await sap_client.get_integration_flows()
-        
+        logger.info(f"Fetching configurations for iFlow: {iflow_id}, version: {version}")
+        configurations = await sap_client.get_iflow_configurations(iflow_id, version)
+
+        return APIResponse(
+            success=True,
+            data=configurations,
+            message=f"Successfully retrieved configurations for {iflow_id}",
+            timestamp=datetime.now().isoformat()
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to fetch iflow configurations: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch iflow configurations: {str(e)}"
+        )
+
+@app.get("/api/sap/iflows/{iflow_id}/design-guidelines")
+async def get_design_guidelines(iflow_id: str, version: str, execution_id: Optional[str] = None) -> APIResponse:
+    """Get design guidelines execution results for a specific integration flow"""
+    global sap_client
+
+    if not sap_client:
+        raise HTTPException(status_code=500, detail="SAP client not initialized")
+
+    try:
+        logger.info(f"Fetching design guidelines for iFlow: {iflow_id}, version: {version}, execution_id: {execution_id}")
+        guidelines = await sap_client.get_design_guidelines(iflow_id, version, execution_id)
+
+        return APIResponse(
+            success=True,
+            data=guidelines,
+            message=f"Successfully retrieved design guidelines for {iflow_id}",
+            timestamp=datetime.now().isoformat()
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to fetch design guidelines: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch design guidelines: {str(e)}"
+        )
+
+@app.post("/api/sap/iflows/{iflow_id}/execute-guidelines")
+async def execute_design_guidelines(iflow_id: str, version: str) -> APIResponse:
+    """Execute design guidelines for a specific integration flow"""
+    global sap_client
+
+    if not sap_client:
+        raise HTTPException(status_code=500, detail="SAP client not initialized")
+
+    try:
+        logger.info(f"Executing design guidelines for iFlow: {iflow_id}, version: {version}")
+        result = await sap_client.execute_design_guidelines(iflow_id, version)
+
+        return APIResponse(
+            success=True,
+            data=result,
+            message=f"Successfully executed design guidelines for {iflow_id}",
+            timestamp=datetime.now().isoformat()
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to execute design guidelines: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to execute design guidelines: {str(e)}"
+        )
+
+@app.get("/api/sap/iflows/{iflow_id}/design-guidelines-with-execution/{execution_id}")
+async def get_design_guidelines_by_execution(iflow_id: str, version: str, execution_id: str) -> APIResponse:
+    """Get design guidelines execution results using specific execution ID"""
+    global sap_client
+
+    if not sap_client:
+        raise HTTPException(status_code=500, detail="SAP client not initialized")
+
+    try:
+        logger.info(f"Fetching design guidelines for iFlow: {iflow_id}, version: {version}, execution_id: {execution_id}")
+        guidelines = await sap_client.get_design_guidelines(iflow_id, version, execution_id)
+
+        return APIResponse(
+            success=True,
+            data=guidelines,
+            message=f"Successfully retrieved design guidelines for execution {execution_id}",
+            timestamp=datetime.now().isoformat()
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to fetch design guidelines: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch design guidelines: {str(e)}"
+        )
+@app.get("/api/sap/iflows/{iflow_id}/resources")
+async def get_iflow_resources(iflow_id: str, version: str) -> APIResponse:
+    """Get resources/dependencies for a specific integration flow"""
+    global sap_client
+
+    if not sap_client:
+        raise HTTPException(status_code=500, detail="SAP client not initialized")
+
+    try:
+        logger.info(f"Fetching resources for iFlow: {iflow_id}, version: {version}")
+        resources = await sap_client.get_iflow_resources(iflow_id, version)
+
+        return APIResponse(
+            success=True,
+            data=resources,
+            message=f"Successfully retrieved resources for {iflow_id}",
+            timestamp=datetime.now().isoformat()
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to fetch iflow resources: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch iflow resources: {str(e)}"
+        )
+
+@app.post("/api/sap/iflows/{iflow_id}/deploy")
+async def deploy_iflow(iflow_id: str, version: str, target_environment: str) -> APIResponse:
+    """Deploy integration flow to runtime"""
+    global sap_client
+
+    if not sap_client:
+        raise HTTPException(status_code=500, detail="SAP client not initialized")
+
+    try:
+        logger.info(f"Deploying iFlow: {iflow_id}, version: {version} to {target_environment}")
+        result = await sap_client.deploy_iflow(iflow_id, version, target_environment)
+
+        return APIResponse(
+            success=True,
+            data=result,
+            message=f"Successfully deployed {iflow_id} to {target_environment}",
+            timestamp=datetime.now().isoformat()
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to deploy iflow: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to deploy iflow: {str(e)}"
+        )
+
+@app.get("/api/sap/iflows")
+async def get_integration_flows(package_ids: Optional[str] = None) -> APIResponse:
+    """Get Integration Flows from SAP Integration Suite
+
+    Args:
+        package_ids: Comma-separated list of package IDs to filter by (optional)
+    """
+    global sap_client
+
+    if not sap_client:
+        raise HTTPException(status_code=500, detail="SAP client not initialized")
+
+    try:
+        # Parse package IDs if provided
+        selected_package_ids = []
+        if package_ids:
+            selected_package_ids = [pkg_id.strip() for pkg_id in package_ids.split(',') if pkg_id.strip()]
+            logger.info(f"Fetching Integration Flows from {len(selected_package_ids)} selected packages: {selected_package_ids}")
+        else:
+            logger.info("Fetching Integration Flows from all packages")
+
+        iflows = await sap_client.get_integration_flows(selected_package_ids if selected_package_ids else None)
+
         return APIResponse(
             success=True,
             data=iflows,
-            message=f"Successfully retrieved {len(iflows)} integration flows",
+            message=f"Successfully retrieved {len(iflows)} integration flows{f' from {len(selected_package_ids)} packages' if selected_package_ids else ''}",
             timestamp=datetime.now().isoformat()
         )
-        
+
     except Exception as e:
         logger.error(f"Failed to fetch iflows: {str(e)}")
         raise HTTPException(
@@ -211,19 +377,19 @@ async def get_integration_flows() -> APIResponse:
 async def get_base_tenant_data() -> APIResponse:
     """Get complete base tenant data (packages + iflows)"""
     global sap_client
-    
+
     if not sap_client:
         raise HTTPException(status_code=500, detail="SAP client not initialized")
-    
+
     try:
         logger.info("Fetching complete base tenant data from SAP")
-        
+
         # Fetch packages and iflows in parallel for better performance
         packages_task = sap_client.get_integration_packages()
         iflows_task = sap_client.get_integration_flows()
-        
+
         packages, iflows = await asyncio.gather(packages_task, iflows_task)
-        
+
         base_tenant_data = BaseTenantData(
             tenant_id="ccci-sandbox-001",
             tenant_name="CCCI_SANDBOX",
@@ -232,14 +398,14 @@ async def get_base_tenant_data() -> APIResponse:
             last_synced=datetime.now(),
             connection_status="connected"
         )
-        
+
         return APIResponse(
             success=True,
             data=base_tenant_data.dict(),
             message=f"Successfully retrieved base tenant data: {len(packages)} packages, {len(iflows)} iflows",
             timestamp=datetime.now().isoformat()
         )
-        
+
     except Exception as e:
         logger.error(f"Failed to fetch base tenant data: {str(e)}")
         raise HTTPException(
@@ -251,21 +417,21 @@ async def get_base_tenant_data() -> APIResponse:
 async def get_package_details(package_id: str) -> APIResponse:
     """Get detailed information about a specific integration package"""
     global sap_client
-    
+
     if not sap_client:
         raise HTTPException(status_code=500, detail="SAP client not initialized")
-    
+
     try:
         logger.info(f"Fetching package details for: {package_id}")
         package_details = await sap_client.get_package_details(package_id)
-        
+
         return APIResponse(
             success=True,
             data=package_details,
             message=f"Successfully retrieved package details for {package_id}",
             timestamp=datetime.now().isoformat()
         )
-        
+
     except Exception as e:
         logger.error(f"Failed to fetch package details: {str(e)}")
         raise HTTPException(
@@ -277,21 +443,21 @@ async def get_package_details(package_id: str) -> APIResponse:
 async def get_iflow_details(iflow_id: str) -> APIResponse:
     """Get detailed information about a specific integration flow"""
     global sap_client
-    
+
     if not sap_client:
         raise HTTPException(status_code=500, detail="SAP client not initialized")
-    
+
     try:
         logger.info(f"Fetching iflow details for: {iflow_id}")
         iflow_details = await sap_client.get_iflow_details(iflow_id)
-        
+
         return APIResponse(
             success=True,
             data=iflow_details,
             message=f"Successfully retrieved iflow details for {iflow_id}",
             timestamp=datetime.now().isoformat()
         )
-        
+
     except Exception as e:
         logger.error(f"Failed to fetch iflow details: {str(e)}")
         raise HTTPException(
@@ -305,21 +471,21 @@ async def get_iflow_details(iflow_id: str) -> APIResponse:
 async def refresh_sap_token() -> APIResponse:
     """Manually refresh SAP OAuth token"""
     global sap_client
-    
+
     if not sap_client:
         raise HTTPException(status_code=500, detail="SAP client not initialized")
-    
+
     try:
         logger.info("Manually refreshing SAP OAuth token")
         await sap_client.refresh_token()
-        
+
         return APIResponse(
             success=True,
             data={"token_refreshed": True},
             message="SAP OAuth token refreshed successfully",
             timestamp=datetime.now().isoformat()
         )
-        
+
     except Exception as e:
         logger.error(f"Failed to refresh token: {str(e)}")
         raise HTTPException(
@@ -331,20 +497,20 @@ async def refresh_sap_token() -> APIResponse:
 async def get_token_status() -> APIResponse:
     """Get current OAuth token status"""
     global sap_client
-    
+
     if not sap_client:
         raise HTTPException(status_code=500, detail="SAP client not initialized")
-    
+
     try:
-        token_info = sap_client.get_token_info()
-        
+        token_info = await sap_client.get_token_status()
+
         return APIResponse(
             success=True,
             data=token_info,
             message="Token status retrieved successfully",
             timestamp=datetime.now().isoformat()
         )
-        
+
     except Exception as e:
         logger.error(f"Failed to get token status: {str(e)}")
         raise HTTPException(
@@ -358,7 +524,7 @@ async def get_token_status() -> APIResponse:
 async def get_backend_config() -> APIResponse:
     """Get backend configuration information"""
     settings = get_settings()
-    
+
     config_info = {
         "sap_base_url": settings.sap_base_url,
         "sap_token_url": settings.sap_token_url,
@@ -369,10 +535,13 @@ async def get_backend_config() -> APIResponse:
             "Integration Packages",
             "Integration Flows",
             "Package Details",
-            "iFlow Details"
+            "iFlow Details",
+            "Design Guidelines",
+            "iFlow Configurations",
+            "iFlow Resources"
         ]
     }
-    
+
     return APIResponse(
         success=True,
         data=config_info,
