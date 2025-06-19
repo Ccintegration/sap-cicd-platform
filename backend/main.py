@@ -1,3 +1,5 @@
+# File Path: backend/main.py
+# Filename: main.py
 """
 FastAPI Backend Proxy for SAP Integration Suite - Updated with correct design guidelines APIs
 Handles authentication, token management, and API proxying
@@ -14,6 +16,8 @@ import logging
 from datetime import datetime, timedelta
 import os
 import json
+import csv
+from pathlib import Path
 
 from config import Settings, get_settings
 from sap_client import SAPClient, SAPCredentials
@@ -42,7 +46,7 @@ app = FastAPI(
 # Configure CORS for frontend communication
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173", "http://localhost:8080", "*"],  # Add your frontend URLs
+    allow_origins=["http://localhost:3000", "http://localhost:5173", "http://localhost:8080", "*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -207,6 +211,238 @@ async def get_iflow_configurations(iflow_id: str, version: str) -> APIResponse:
             detail=f"Failed to fetch iflow configurations: {str(e)}"
         )
 
+@app.get("/api/sap/iflows/{iflow_id}/configuration")
+async def get_iflow_configuration(iflow_id: str, version: str = "active") -> APIResponse:
+    """Get configuration parameters for a specific integration flow - simplified endpoint"""
+    global sap_client
+
+    if not sap_client:
+        raise HTTPException(status_code=500, detail="SAP client not initialized")
+
+    try:
+        logger.info(f"Fetching configuration for iFlow: {iflow_id}, version: {version}")
+        
+        # Get configurations
+        configurations = await sap_client.get_iflow_configurations(iflow_id, version)
+
+        # Transform configurations to expected format
+        parameters = []
+        for config in configurations:
+            parameters.append({
+                "ParameterKey": config.get("ParameterKey", ""),
+                "ParameterValue": config.get("ParameterValue", ""),
+                "DataType": config.get("DataType", "string"),
+                "Description": config.get("Description", ""),
+                "Mandatory": config.get("Mandatory", False)
+            })
+
+        response_data = {
+            "name": f"iFlow {iflow_id}",
+            "version": version,
+            "parameters": parameters
+        }
+
+        return APIResponse(
+            success=True,
+            data=response_data,
+            message=f"Successfully retrieved configuration for {iflow_id}",
+            timestamp=datetime.now().isoformat()
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to fetch iflow configuration: {str(e)}")
+        
+        # Return empty configuration instead of failing
+        return APIResponse(
+            success=True,
+            data={
+                "name": f"iFlow {iflow_id}",
+                "version": version,
+                "parameters": []
+            },
+            message=f"No configuration parameters found for {iflow_id}",
+            timestamp=datetime.now().isoformat()
+        )
+
+class IFlowConfigurationData(BaseModel):
+    iflowId: str
+    iflowName: str
+    version: str
+    configurations: Dict[str, str]
+
+class SaveConfigurationRequest(BaseModel):
+    environment: str
+    timestamp: str
+    iflows: List[IFlowConfigurationData]
+
+# Create configurations directory if it doesn't exist
+CONFIGURATIONS_DIR = Path("configurations")
+CONFIGURATIONS_DIR.mkdir(exist_ok=True)
+
+@app.post("/api/save-iflow-configurations")
+async def save_iflow_configurations(request: SaveConfigurationRequest):
+    """
+    Save iFlow configurations to CSV file
+    Creates separate CSV files for each environment
+    """
+    try:
+        # Generate filename based on environment and timestamp
+        timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"iflow_configurations_{request.environment}_{timestamp_str}.csv"
+        filepath = CONFIGURATIONS_DIR / filename
+        
+        # Also create/update a latest file for each environment
+        latest_filename = f"iflow_configurations_{request.environment}_latest.csv"
+        latest_filepath = CONFIGURATIONS_DIR / latest_filename
+        
+        # Prepare CSV data
+        csv_data = []
+        
+        for iflow in request.iflows:
+            # Create a row for each configuration parameter
+            for param_key, param_value in iflow.configurations.items():
+                csv_data.append({
+                    'Environment': request.environment,
+                    'Timestamp': request.timestamp,
+                    'iFlow_ID': iflow.iflowId,
+                    'iFlow_Name': iflow.iflowName,
+                    'iFlow_Version': iflow.version,
+                    'Parameter_Key': param_key,
+                    'Parameter_Value': param_value,
+                    'Saved_At': datetime.now().isoformat()
+                })
+        
+        # Define CSV headers
+        headers = [
+            'Environment',
+            'Timestamp', 
+            'iFlow_ID',
+            'iFlow_Name',
+            'iFlow_Version',
+            'Parameter_Key',
+            'Parameter_Value',
+            'Saved_At'
+        ]
+        
+        # Write to timestamped file
+        with open(filepath, 'w', newline='', encoding='utf-8') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=headers)
+            writer.writeheader()
+            writer.writerows(csv_data)
+        
+        # Write to latest file (overwrite previous)
+        with open(latest_filepath, 'w', newline='', encoding='utf-8') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=headers)
+            writer.writeheader()
+            writer.writerows(csv_data)
+        
+        # Log the save operation
+        logger.info(f"✅ Saved {len(csv_data)} configuration parameters to {filename}")
+        logger.info(f"📁 Files created: {filepath}, {latest_filepath}")
+        
+        return {
+            "success": True,
+            "message": f"Successfully saved {len(csv_data)} configuration parameters",
+            "data": {
+                "filename": filename,
+                "latest_filename": latest_filename,
+                "filepath": str(filepath),
+                "latest_filepath": str(latest_filepath),
+                "total_parameters": len(csv_data),
+                "total_iflows": len(request.iflows),
+                "environment": request.environment
+            },
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to save configurations: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to save configurations: {str(e)}"
+        )
+
+@app.get("/api/list-configuration-files")
+async def list_configuration_files():
+    """
+    List all saved configuration files
+    """
+    try:
+        files = []
+        
+        if CONFIGURATIONS_DIR.exists():
+            for file_path in CONFIGURATIONS_DIR.glob("*.csv"):
+                stat = file_path.stat()
+                files.append({
+                    "filename": file_path.name,
+                    "filepath": str(file_path),
+                    "size": stat.st_size,
+                    "created": datetime.fromtimestamp(stat.st_ctime).isoformat(),
+                    "modified": datetime.fromtimestamp(stat.st_mtime).isoformat()
+                })
+        
+        # Sort by modification time (newest first)
+        files.sort(key=lambda x: x["modified"], reverse=True)
+        
+        return {
+            "success": True,
+            "message": f"Found {len(files)} configuration files",
+            "data": {
+                "files": files,
+                "total_files": len(files),
+                "configurations_directory": str(CONFIGURATIONS_DIR)
+            },
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to list configuration files: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to list configuration files: {str(e)}"
+        )
+
+@app.get("/api/download-configuration-file/{filename}")
+async def download_configuration_file(filename: str):
+    """
+    Download a specific configuration file
+    """
+    try:
+        filepath = CONFIGURATIONS_DIR / filename
+        
+        if not filepath.exists():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Configuration file '{filename}' not found"
+            )
+        
+        # Read CSV file and return as JSON
+        configurations = []
+        with open(filepath, 'r', encoding='utf-8') as csvfile:
+            reader = csv.DictReader(csvfile)
+            configurations = list(reader)
+        
+        return {
+            "success": True,
+            "message": f"Successfully loaded configuration file '{filename}'",
+            "data": {
+                "filename": filename,
+                "filepath": str(filepath),
+                "configurations": configurations,
+                "total_records": len(configurations)
+            },
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Failed to download configuration file: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to download configuration file: {str(e)}"
+        )
+
 @app.get("/api/sap/iflows/{iflow_id}/design-guidelines")
 async def get_design_guidelines(iflow_id: str, version: str, execution_id: Optional[str] = None) -> APIResponse:
     """Get design guidelines execution results for a specific integration flow"""
@@ -284,6 +520,7 @@ async def get_design_guidelines_by_execution(iflow_id: str, version: str, execut
             status_code=500,
             detail=f"Failed to fetch design guidelines: {str(e)}"
         )
+
 @app.get("/api/sap/iflows/{iflow_id}/resources")
 async def get_iflow_resources(iflow_id: str, version: str) -> APIResponse:
     """Get resources/dependencies for a specific integration flow"""

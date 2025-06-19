@@ -1,3 +1,5 @@
+# File Path: backend/sap_client.py
+# Filename: sap_client.py
 """
 SAP Integration Suite API Client - Updated with correct design guidelines APIs
 Handles authentication and API calls to SAP Integration Suite
@@ -8,7 +10,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
-from models import IntegrationPackage, IntegrationFlow, TokenInfo, TenantConfig
+from models import IntegrationPackage, IntegrationFlow, TokenInfo
 import urllib.parse
 
 logger = logging.getLogger(__name__)
@@ -23,12 +25,12 @@ class SAPCredentials(BaseModel):
 class SAPClient:
     """SAP Integration Suite API Client"""
 
-    def __init__(self, credentials: TenantConfig):
+    def __init__(self, credentials: SAPCredentials):
         self.client_id = credentials.client_id
         self.client_secret = credentials.client_secret
         self.token_url = credentials.token_url
         self.base_url = credentials.base_url
-        self.auth_url = credentials.auth_url
+        self.auth_url = getattr(credentials, 'auth_url', None)
         self.token_info: Optional[TokenInfo] = None
         self.oauth_token: str = ""
         self.token_expiry: datetime = datetime.now()
@@ -44,6 +46,14 @@ class SAPClient:
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         await self.client.aclose()
+
+    async def get_access_token(self) -> str:
+        """Get OAuth access token from SAP - simplified method"""
+        if self.token_info and self._is_token_valid():
+            return self.token_info.access_token
+        
+        token_data = await self.get_token()
+        return token_data.get('access_token', '')
 
     async def get_token(self) -> Dict[str, Any]:
         """Get OAuth access token from SAP"""
@@ -313,6 +323,7 @@ class SAPClient:
                 "message": str(e),
                 "execution_id": None
             }
+
     async def get_design_guidelines(self, iflow_id: str, version: str, execution_id: str = None) -> Dict[str, Any]:
         """Get design guidelines execution results for a specific integration flow"""
         try:
@@ -402,7 +413,8 @@ class SAPClient:
                 "is_compliant": False, 
                 "execution_id": None
             }
-    async def get_iflow_resources(self, iflow_id: str, version: str) -> List[Dict[str, Any]]:
+
+    async def get_iflow_resources(self, iflow_id: str, version: str) -> Dict[str, List[Dict[str, Any]]]:
         """Get resources/dependencies for a specific integration flow"""
         try:
             logger.info(f"Fetching resources for iFlow: {iflow_id}, version: {version}")
@@ -449,11 +461,25 @@ class SAPClient:
                     return categorized_resources
                 else:
                     logger.warning(f"Failed to get resources for {iflow_id}: {response.status_code}")
-                    return {"value_mappings": [], "groovy_scripts": [], "message_mappings": [], "external_services": [], "process_direct": [], "other": []}
+                    return {
+                        "value_mappings": [], 
+                        "groovy_scripts": [], 
+                        "message_mappings": [], 
+                        "external_services": [], 
+                        "process_direct": [], 
+                        "other": []
+                    }
 
         except Exception as e:
             logger.error(f"Error fetching resources for {iflow_id}: {str(e)}")
-            return {"value_mappings": [], "groovy_scripts": [], "message_mappings": [], "external_services": [], "process_direct": [], "other": []}
+            return {
+                "value_mappings": [], 
+                "groovy_scripts": [], 
+                "message_mappings": [], 
+                "external_services": [], 
+                "process_direct": [], 
+                "other": []
+            }
 
     async def deploy_iflow(self, iflow_id: str, version: str, target_environment: str) -> Dict[str, Any]:
         """Deploy integration flow to runtime"""
@@ -492,7 +518,11 @@ class SAPClient:
 
         except Exception as e:
             logger.error(f"Error deploying {iflow_id}: {str(e)}")
-            return {"status": "error", "message": str(e), "target_environment": target_environment}
+            return {
+                "status": "error", 
+                "message": str(e), 
+                "target_environment": target_environment
+            }
 
     async def get_package_details(self, package_id: str) -> Dict[str, Any]:
         """Get detailed information about a specific package"""
