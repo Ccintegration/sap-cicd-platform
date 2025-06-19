@@ -276,6 +276,7 @@ class SAPClient:
             logger.info(f"Executing design guidelines for iFlow: {iflow_id}, version: {version}")
 
             # SAP API: POST to execute design guidelines
+            # URL format based on your requirement: /ExecuteIntegrationDesigntimeArtifactsGuidelines?Id='{iflow_id}'&Version='{version}'
             url = f"{self.base_url}/api/v1/ExecuteIntegrationDesigntimeArtifactsGuidelines?Id='{iflow_id}'&Version='{version}'"
 
             headers = await self._get_auth_headers()
@@ -285,35 +286,33 @@ class SAPClient:
                 response = await client.post(url, headers=headers, json={})
 
                 if response.status_code in [200, 201, 202]:
-                    # Try to extract execution ID from response
-                    execution_id = None
-                    response_data = {}
+                    logger.info(f"Successfully triggered design guidelines execution for {iflow_id}")
                     
-                    try:
-                        response_data = response.json()
-                        # The execution ID might be in different locations depending on SAP's response format
-                        execution_id = (response_data.get("d", {}).get("Id") or 
-                                    response_data.get("Id") or 
-                                    response.headers.get("Location", "").split("'")[-2] if "'" in response.headers.get("Location", "") else None)
-                    except:
-                        pass
-
-                    logger.info(f"Successfully triggered design guidelines execution for {iflow_id}, execution_id: {execution_id}")
+                    # SAP API returns execution ID as a plain string
+                    execution_id = response.text.strip()
+                    
+                    logger.info(f"Extracted execution ID: {execution_id}")
+                    
                     return {
                         "status": "executed", 
                         "message": "Design guidelines execution started",
-                        "execution_id": execution_id,
-                        "iflow_id": iflow_id,
-                        "version": version
+                        "execution_id": execution_id
                     }
                 else:
                     logger.warning(f"Failed to execute design guidelines for {iflow_id}: {response.status_code}")
-                    return {"status": "failed", "message": f"Failed to execute: {response.status_code}"}
+                    return {
+                        "status": "failed", 
+                        "message": f"Failed to execute: {response.status_code}",
+                        "execution_id": None
+                    }
 
         except Exception as e:
             logger.error(f"Error executing design guidelines for {iflow_id}: {str(e)}")
-            return {"status": "error", "message": str(e)}
-
+            return {
+                "status": "error", 
+                "message": str(e),
+                "execution_id": None
+            }
     async def get_design_guidelines(self, iflow_id: str, version: str, execution_id: str = None) -> Dict[str, Any]:
         """Get design guidelines execution results for a specific integration flow"""
         try:
