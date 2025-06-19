@@ -1,4 +1,4 @@
-// File Path: frontend/components/pipeline/Stage3Configuration.tsx
+// File Path: src/components/pipeline/Stage3Configuration.tsx
 // Filename: Stage3Configuration.tsx
 import React, { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -210,122 +210,85 @@ const Stage3Configuration: React.FC<Stage3Props> = ({
         setError(
           "No integration flows selected. Please go back and select iFlows."
         );
+        setLoading(false);
         return;
       }
 
-      // Backend API client
-      const backendAPIClient = (await import("@/lib/backend-client")).default;
+      console.log("Loading configurations for selected iFlows:", data.selectedIFlows);
 
-      // Load configurations for each selected iFlow
-      const configurationsPromises = data.selectedIFlows.map(
-        async (iflowId: string) => {
-          try {
-            console.log(`Loading configuration for iFlow: ${iflowId}`);
-            const configData = await backendAPIClient.getIFlowConfiguration(iflowId);
-            
-            return {
-              iflowId,
-              iflowName: configData.name || `iFlow ${iflowId}`,
-              version: configData.version || "active",
-              parameters: configData.parameters || [],
-              environments: environments.map((env) => ({
-                environment: env.id,
-                configurations: {},
-              })),
-            };
-          } catch (error) {
-            console.error(`Failed to load configuration for ${iflowId}:`, error);
-            
-            // Return a configuration with empty parameters for failed requests
-            const iflowDetails = data.iflowDetails?.find(
-              (iflow: any) => iflow.id === iflowId || iflow.Id === iflowId,
-            );
-            
-            const iflowVersion = iflowDetails?.version || iflowDetails?.Version || "active";
-            const iflowName = iflowDetails?.name || iflowDetails?.Name || `iFlow ${iflowId}`;
+      const configPromises = data.selectedIFlows.map(async (iflowId: string) => {
+        try {
+          // Find the iflow details to get version and name
+          const iflowDetails = data.iflowDetails?.find(
+            (iflow: any) => iflow.id === iflowId || iflow.Id === iflowId,
+          );
 
+          const iflowVersion = iflowDetails?.version || iflowDetails?.Version || "active";
+          const iflowName = iflowDetails?.name || iflowDetails?.Name || `iFlow ${iflowId}`;
+
+          console.log(`Loading configuration for ${iflowId} (${iflowName}) version ${iflowVersion}`);
+
+          // Call backend API to get configuration parameters
+          const response = await fetch(
+            `http://localhost:8000/api/sap/iflows/${iflowId}/configurations?version=${iflowVersion}`
+          );
+
+          if (!response.ok) {
+            console.warn(`Failed to load configuration for ${iflowId}: ${response.status}`);
             return {
               iflowId,
               iflowName,
               version: iflowVersion,
               parameters: [],
-              environments: environments.map((env) => ({
-                environment: env.id,
-                configurations: {},
-              })),
+              environments: [],
             };
           }
-        },
-      );
 
-      const results = await Promise.all(configurationsPromises);
-      const validConfigurations = results.filter(
-        (config): config is IFlowConfiguration => config !== null,
-      );
+          const result = await response.json();
+          const parameters = result.data?.parameters || [];
 
-      console.log('Final configurations loaded:', validConfigurations);
-      setIFlowConfigurations(validConfigurations);
+          console.log(`Loaded ${parameters.length} parameters for ${iflowId}`);
 
-      // Initialize configuration changes
-      const initialChanges: Record<string, Record<string, string>> = {};
-      validConfigurations.forEach((config) => {
-        initialChanges[config.iflowId] = {};
-        config.parameters.forEach((param) => {
-          initialChanges[config.iflowId][param.ParameterKey] =
-            param.ParameterValue || "";
-        });
+          return {
+            iflowId,
+            iflowName,
+            version: iflowVersion,
+            parameters,
+            environments: [],
+          };
+        } catch (error) {
+          console.error(`Error loading configuration for ${iflowId}:`, error);
+          
+          const iflowDetails = data.iflowDetails?.find(
+            (iflow: any) => iflow.id === iflowId || iflow.Id === iflowId,
+          );
+
+          return {
+            iflowId,
+            iflowName: iflowDetails?.name || iflowDetails?.Name || `iFlow ${iflowId}`,
+            version: iflowDetails?.version || iflowDetails?.Version || "active",
+            parameters: [],
+            environments: [],
+          };
+        }
       });
-      setConfigurationChanges(initialChanges);
+
+      const configs = await Promise.all(configPromises);
+      setIFlowConfigurations(configs);
 
     } catch (error) {
       console.error("Failed to load configurations:", error);
-      setError(`Failed to load integration flow configurations: ${error.message}`);
+      setError("Failed to load configuration parameters from SAP tenant");
     } finally {
       setLoading(false);
     }
   };
 
-  const loadExistingConfigurations = async (environment: string) => {
-    try {
-      const backendAPIClient = (await import("@/lib/backend-client")).default;
-      const existingConfigs = await backendAPIClient.getEnvironmentConfigurations(environment);
-      
-      if (existingConfigs.length > 0) {
-        const updatedChanges = { ...configurationChanges };
-        
-        existingConfigs.forEach(config => {
-          if (updatedChanges[config.iFlow_ID]) {
-            updatedChanges[config.iFlow_ID][config.Parameter_Key] = config.Parameter_Value;
-          }
-        });
-        
-        setConfigurationChanges(updatedChanges);
-      }
-    } catch (error) {
-      console.warn(`Failed to load existing configurations for ${environment}:`, error);
-    }
-  };
-
   const loadConfigurationHistory = async () => {
     try {
-      const backendAPIClient = (await import("@/lib/backend-client")).default;
-      const filesResponse = await backendAPIClient.listConfigurationFiles();
-      
-      // Parse history from files (simplified)
-      const history: ConfigurationHistory[] = filesResponse.data.files
-        .filter(file => !file.filename.includes('_latest'))
-        .map(file => {
-          const parts = file.filename.replace('.csv', '').split('_');
-          return {
-            timestamp: file.modified,
-            environment: parts[2] || 'unknown',
-            configurations: {},
-            savedBy: 'system'
-          };
-        })
-        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-        .slice(0, 10); // Keep last 10 entries
-      
+      // Load configuration history from backend if available
+      // This is a placeholder - implement backend API call
+      const history: ConfigurationHistory[] = [];
       setConfigurationHistory(history);
     } catch (error) {
       console.warn('Failed to load configuration history:', error);
@@ -372,10 +335,20 @@ const Stage3Configuration: React.FC<Stage3Props> = ({
       };
 
       // Save to Python backend via CSV
-      const backendAPIClient = (await import("@/lib/backend-client")).default;
-      
-      // Call the backend API to save configurations
-      await backendAPIClient.saveIFlowConfigurations(configurationData);
+      const response = await fetch('http://localhost:8000/api/save-iflow-configurations', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(configurationData),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to save configurations: ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log("✅ Configurations saved successfully to backend:", result);
 
       // Update local state for later stages
       const environmentConfigs = {
@@ -396,7 +369,7 @@ const Stage3Configuration: React.FC<Stage3Props> = ({
       // Show success message
       if (!isAutoSave) {
         setSaveSuccess(true);
-        console.log("✅ Configurations saved successfully to backend");
+        console.log("✅ Configurations saved successfully to CSV files on server");
 
         // Auto-hide success message after 3 seconds
         setTimeout(() => setSaveSuccess(false), 3000);
@@ -406,222 +379,128 @@ const Stage3Configuration: React.FC<Stage3Props> = ({
       await loadConfigurationHistory();
 
     } catch (error) {
-      console.error("❌ Failed to save configurations:", error);
-      setError(`Failed to save configurations: ${error.message}`);
+      console.error("Failed to save configurations:", error);
+      setError(`Failed to save configurations: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       if (!isAutoSave) setSaving(false);
     }
   };
 
+  const handleEnvironmentChange = (environment: string) => {
+    setSelectedEnvironment(environment);
+    
+    // Load existing configurations for this environment
+    if (data.configurations && data.configurations[environment]) {
+      setConfigurationChanges(data.configurations[environment].configurations || {});
+    } else {
+      setConfigurationChanges({});
+    }
+    setUnsavedChanges(false);
+  };
+
+  // FIXED: handleNext function that ONLY navigates, NO API calls
   const handleNext = () => {
-    // Update complete data with all necessary information for next stage
+    console.log("🚀 [Stage3] Next button clicked - navigating to validation stage");
+    
+    // Update pipeline data with current configuration state
+    const environmentConfigs = {
+      environment: selectedEnvironment,
+      configurations: configurationChanges,
+      timestamp: new Date().toISOString(),
+    };
+
+    // Pass data to next stage WITHOUT making any API calls
     onComplete({
       ...data,
       configurations: {
         ...data.configurations,
-        [selectedEnvironment]: {
-          environment: selectedEnvironment,
-          configurations: configurationChanges,
-          timestamp: new Date().toISOString(),
-        },
+        [selectedEnvironment]: environmentConfigs,
       },
-      currentEnvironmentConfigs: {
-        environment: selectedEnvironment,
-        configurations: configurationChanges,
-        timestamp: new Date().toISOString(),
-      },
-      iflowConfigurations: iflowConfigurations,
+      currentEnvironmentConfigs: environmentConfigs,
     });
-    
+
     // Navigate to next stage
     onNext();
   };
 
-  const handleEnvironmentChange = async (environmentId: string) => {
-    setSelectedEnvironment(environmentId);
-    await loadExistingConfigurations(environmentId);
-  };
-
-  const exportConfigurations = async () => {
-    setExportingConfigs(true);
-    try {
-      const backendAPIClient = (await import("@/lib/backend-client")).default;
-      const blob = await backendAPIClient.exportConfigurations(selectedEnvironment, 'json');
-      
-      const url = URL.createObjectURL(blob);
-      const exportFileDefaultName = `iflow_configurations_${selectedEnvironment}_${new Date().toISOString().split('T')[0]}.json`;
-      
-      const linkElement = document.createElement('a');
-      linkElement.setAttribute('href', url);
-      linkElement.setAttribute('download', exportFileDefaultName);
-      linkElement.click();
-      
-      URL.revokeObjectURL(url);
-      console.log('✅ Configurations exported successfully');
-    } catch (error) {
-      console.error('❌ Failed to export configurations:', error);
-      setError(`Failed to export configurations: ${error.message}`);
-    } finally {
-      setExportingConfigs(false);
-    }
-  };
-
-  const importConfigurations = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    setImportingConfigs(true);
-    try {
-      const backendAPIClient = (await import("@/lib/backend-client")).default;
-      const result = await backendAPIClient.importConfigurations(file, selectedEnvironment, false);
-      
-      console.log('✅ Configurations imported successfully:', result);
-      
-      // Reload configurations
-      await loadExistingConfigurations(selectedEnvironment);
-      
-      // Show import results
-      if (result.errors.length > 0) {
-        setError(`Import completed with ${result.errors.length} errors: ${result.errors.join(', ')}`);
-      }
-    } catch (error) {
-      console.error('❌ Failed to import configurations:', error);
-      setError(`Failed to import configurations: ${error.message}`);
-    } finally {
-      setImportingConfigs(false);
-      // Reset file input
-      event.target.value = '';
-    }
-  };
-
-  const copyConfigurationsFromEnvironment = async (sourceEnvironment: string) => {
-    try {
-      const backendAPIClient = (await import("@/lib/backend-client")).default;
-      const sourceConfigs = await backendAPIClient.getEnvironmentConfigurations(sourceEnvironment);
-      
-      const updatedChanges = { ...configurationChanges };
-      
-      sourceConfigs.forEach(config => {
-        if (updatedChanges[config.iFlow_ID]) {
-          updatedChanges[config.iFlow_ID][config.Parameter_Key] = config.Parameter_Value;
-        }
-      });
-      
-      setConfigurationChanges(updatedChanges);
-      setUnsavedChanges(true);
-      console.log(`✅ Configurations copied from ${sourceEnvironment}`);
-    } catch (error) {
-      console.error(`❌ Failed to copy configurations from ${sourceEnvironment}:`, error);
-      setError(`Failed to copy configurations: ${error.message}`);
-    }
-  };
-
-  const compareEnvironments = async () => {
-    try {
-      const backendAPIClient = (await import("@/lib/backend-client")).default;
-      const result = await backendAPIClient.compareConfigurations(comparisonSource, comparisonTarget);
-      setComparisonResult(result);
-    } catch (error) {
-      console.error('Failed to compare environments:', error);
-      setError(`Failed to compare environments: ${error.message}`);
-    }
-  };
-
-  const toggleFieldMask = (fieldKey: string) => {
-    const newMaskedFields = new Set(maskedFields);
-    if (newMaskedFields.has(fieldKey)) {
-      newMaskedFields.delete(fieldKey);
-    } else {
-      newMaskedFields.add(fieldKey);
-    }
-    setMaskedFields(newMaskedFields);
-  };
-
-  const getFilteredParameters = (parameters: ConfigurationParameter[]) => {
-    return parameters.filter(param => {
-      // Search filter
-      if (searchQuery && !param.ParameterKey.toLowerCase().includes(searchQuery.toLowerCase()) &&
-          !param.Description?.toLowerCase().includes(searchQuery.toLowerCase())) {
-        return false;
-      }
-
-      // Data type filter
-      if (filterDataType !== "all" && param.DataType !== filterDataType) {
-        return false;
-      }
-
-      // Mandatory only filter
-      if (showMandatoryOnly && !param.Mandatory) {
-        return false;
-      }
-
-      // Empty only filter
-      if (showEmptyOnly && param.ParameterValue && param.ParameterValue.trim() !== "") {
-        return false;
-      }
-
-      return true;
-    });
-  };
-
   const getTotalParametersCount = () => {
-    return iflowConfigurations.reduce(
-      (total, config) => total + config.parameters.length,
-      0,
-    );
+    return iflowConfigurations.reduce((total, config) => total + config.parameters.length, 0);
   };
 
   const getConfiguredParametersCount = () => {
-    let count = 0;
+    let configured = 0;
     iflowConfigurations.forEach((config) => {
       config.parameters.forEach((param) => {
-        const currentValue =
-          configurationChanges[config.iflowId]?.[param.ParameterKey];
+        const currentValue = configurationChanges[config.iflowId]?.[param.ParameterKey] || param.ParameterValue;
         if (currentValue && currentValue.trim() !== "") {
-          count++;
+          configured++;
         }
       });
     });
-    return count;
+    return configured;
   };
 
   const getComplianceScore = () => {
     const total = getTotalParametersCount();
-    const configured = getConfiguredParametersCount();
-    return total > 0 ? Math.round((configured / total) * 100) : 0;
+    if (total === 0) return 0;
+    return Math.round((getConfiguredParametersCount() / total) * 100);
+  };
+
+  const filteredConfigurations = iflowConfigurations.map((config) => ({
+    ...config,
+    parameters: config.parameters.filter((param) => {
+      const currentValue = configurationChanges[config.iflowId]?.[param.ParameterKey] || param.ParameterValue;
+      
+      // Search filter
+      const matchesSearch = !searchQuery || 
+        param.ParameterKey.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (param.Description || "").toLowerCase().includes(searchQuery.toLowerCase());
+      
+      // Data type filter
+      const matchesDataType = filterDataType === "all" || param.DataType === filterDataType;
+      
+      // Mandatory filter
+      const matchesMandatory = !showMandatoryOnly || param.Mandatory;
+      
+      // Empty filter
+      const matchesEmpty = !showEmptyOnly || !currentValue || currentValue.trim() === "";
+      
+      return matchesSearch && matchesDataType && matchesMandatory && matchesEmpty;
+    }),
+  })).filter(config => config.parameters.length > 0);
+
+  const handleBulkUpdate = (iflowId: string, updates: Record<string, string>) => {
+    setConfigurationChanges((prev) => ({
+      ...prev,
+      [iflowId]: {
+        ...prev[iflowId],
+        ...updates,
+      },
+    }));
+    setUnsavedChanges(true);
+  };
+
+  const maskField = (fieldId: string) => {
+    const newMasked = new Set(maskedFields);
+    if (newMasked.has(fieldId)) {
+      newMasked.delete(fieldId);
+    } else {
+      newMasked.add(fieldId);
+    }
+    setMaskedFields(newMasked);
   };
 
   if (loading) {
     return (
-      <Card className="w-full">
-        <CardContent className="p-6">
-          <div className="flex items-center justify-center space-x-2">
-            <RefreshCw className="w-4 h-4 animate-spin" />
-            <span>Loading integration flow configurations...</span>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (error) {
-    return (
-      <Card className="w-full">
-        <CardContent className="p-6">
-          <Alert>
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-          <div className="mt-4 flex space-x-2">
-            <Button onClick={loadConfigurations} variant="outline">
-              <RefreshCw className="w-4 h-4 mr-2" />
-              Retry
-            </Button>
-            <Button onClick={onPrevious} variant="outline">
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Go Back
-            </Button>
-          </div>
+      <Card>
+        <CardContent className="p-8 text-center">
+          <RefreshCw className="w-8 h-8 text-blue-600 animate-spin mx-auto mb-4" />
+          <p className="text-gray-600">
+            Loading configuration parameters from SAP Integration Suite...
+          </p>
+          <p className="text-xs text-gray-500 mt-2">
+            Frontend → Backend API → SAP Integration Suite
+          </p>
         </CardContent>
       </Card>
     );
@@ -629,518 +508,322 @@ const Stage3Configuration: React.FC<Stage3Props> = ({
 
   return (
     <div className="space-y-6">
-      {/* Environment Selection & Auto-save */}
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold bg-gradient-to-r from-gray-900 to-purple-900 bg-clip-text text-transparent">
+            Configuration Management
+          </h2>
+          <p className="text-gray-600 mt-1">
+            Configure environment-specific parameters for your selected integration flows
+          </p>
+        </div>
+        <Badge variant="outline" className="text-sm">
+          Step 3 of 8
+        </Badge>
+      </div>
+
+      {/* Error Alert */}
+      {error && (
+        <Alert className="border-red-200 bg-red-50">
+          <AlertCircle className="h-4 w-4 text-red-600" />
+          <AlertDescription className="text-red-800">
+            {error}
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* Success Alert */}
+      {saveSuccess && (
+        <Alert className="border-green-200 bg-green-50">
+          <CheckCircle className="h-4 w-4 text-green-600" />
+          <AlertDescription className="text-green-800">
+            ✅ Configurations saved successfully to CSV files on the server!
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* Environment Selection */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <Globe className="w-5 h-5" />
-              <span>Target Environment</span>
-            </div>
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-2">
-                <Switch
-                  id="auto-save"
-                  checked={autoSave}
-                  onCheckedChange={setAutoSave}
-                />
-                <Label htmlFor="auto-save" className="text-sm">Auto-save</Label>
-              </div>
-              {unsavedChanges && (
-                <Badge variant="outline" className="text-orange-600">
-                  <Clock className="w-3 h-3 mr-1" />
-                  Unsaved changes
-                </Badge>
-              )}
-            </div>
+          <CardTitle className="flex items-center space-x-2">
+            <Globe className="w-5 h-5 text-blue-600" />
+            <span>Target Environment</span>
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {environments.map((env) => (
-              <TooltipProvider key={env.id}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      onClick={() => handleEnvironmentChange(env.id)}
-                      variant={selectedEnvironment === env.id ? "default" : "outline"}
-                      className="flex flex-col items-center space-y-1 h-auto py-3"
-                    >
-                      <Badge className={env.color}>{env.name}</Badge>
-                      <span className="text-xs text-gray-500">{env.id}</span>
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>{env.description}</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+              <div
+                key={env.id}
+                onClick={() => handleEnvironmentChange(env.id)}
+                className={`p-4 border rounded-lg cursor-pointer transition-all duration-200 ${
+                  selectedEnvironment === env.id
+                    ? "border-blue-300 bg-blue-50 shadow-lg"
+                    : "border-gray-200 hover:border-gray-300 hover:shadow-md"
+                }`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="font-medium">{env.name}</h3>
+                  <Badge className={env.color}>{env.id}</Badge>
+                </div>
+                <p className="text-sm text-gray-600">{env.description}</p>
+              </div>
             ))}
           </div>
         </CardContent>
       </Card>
 
-      {/* Configuration Management Actions */}
+      {/* Filters and Tools */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center space-x-2">
-            <Server className="w-5 h-5" />
-            <span>Configuration Management</span>
+            <Filter className="w-5 h-5 text-purple-600" />
+            <span>Configuration Tools</span>
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex flex-wrap gap-3">
-            <Button
-              onClick={exportConfigurations}
-              disabled={exportingConfigs}
-              variant="outline"
-              size="sm"
-            >
-              {exportingConfigs ? (
-                <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <Download className="w-4 h-4 mr-2" />
-              )}
-              Export Config
-            </Button>
-            
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Search */}
             <div className="relative">
-              <input
-                type="file"
-                accept=".json,.csv"
-                onChange={importConfigurations}
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                disabled={importingConfigs}
-              />
-              <Button
-                disabled={importingConfigs}
-                variant="outline"
-                size="sm"
-              >
-                {importingConfigs ? (
-                  <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <Upload className="w-4 h-4 mr-2" />
-                )}
-                Import Config
-              </Button>
-            </div>
-
-            {environments
-              .filter(env => env.id !== selectedEnvironment)
-              .map(env => (
-                <Button
-                  key={env.id}
-                  onClick={() => copyConfigurationsFromEnvironment(env.id)}
-                  variant="outline"
-                  size="sm"
-                >
-                  <Copy className="w-4 h-4 mr-2" />
-                  Copy from {env.name}
-                </Button>
-              ))
-            }
-
-            <Dialog open={showComparisonDialog} onOpenChange={setShowComparisonDialog}>
-              <DialogTrigger asChild>
-                <Button variant="outline" size="sm">
-                  <GitCompare className="w-4 h-4 mr-2" />
-                  Compare Environments
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-4xl">
-                <DialogHeader>
-                  <DialogTitle>Environment Comparison</DialogTitle>
-                  <DialogDescription>
-                    Compare configurations between different environments
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="grid grid-cols-2 gap-4 my-4">
-                  <div>
-                    <Label>Source Environment</Label>
-                    <Select value={comparisonSource} onValueChange={setComparisonSource}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select source" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {environments.map(env => (
-                          <SelectItem key={env.id} value={env.id}>{env.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label>Target Environment</Label>
-                    <Select value={comparisonTarget} onValueChange={setComparisonTarget}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select target" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {environments.map(env => (
-                          <SelectItem key={env.id} value={env.id}>{env.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <DialogFooter>
-                  <Button onClick={compareEnvironments} disabled={!comparisonSource || !comparisonTarget}>
-                    Compare
-                  </Button>
-                </DialogFooter>
-                {comparisonResult && (
-                  <div className="mt-4 space-y-4">
-                    <div className="grid grid-cols-4 gap-4 text-center">
-                      <div>
-                        <div className="text-2xl font-bold text-green-600">{comparisonResult.added.length}</div>
-                        <div className="text-sm text-gray-600">Added</div>
-                      </div>
-                      <div>
-                        <div className="text-2xl font-bold text-blue-600">{comparisonResult.modified.length}</div>
-                        <div className="text-sm text-gray-600">Modified</div>
-                      </div>
-                      <div>
-                        <div className="text-2xl font-bold text-red-600">{comparisonResult.removed.length}</div>
-                        <div className="text-sm text-gray-600">Removed</div>
-                      </div>
-                      <div>
-                        <div className="text-2xl font-bold text-gray-600">{comparisonResult.unchanged.length}</div>
-                        <div className="text-sm text-gray-600">Unchanged</div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </DialogContent>
-            </Dialog>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Success Message */}
-      {saveSuccess && (
-        <Alert className="border-green-200 bg-green-50">
-          <CheckCircle className="h-4 w-4 text-green-600" />
-          <AlertDescription className="text-green-800">
-            ✅ Configurations saved successfully to backend server!
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {/* Search and Filter Controls */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center space-x-2">
-            <Filter className="w-5 h-5" />
-            <span>Search & Filter</span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+              <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
               <Input
                 placeholder="Search parameters..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
+                className="pl-9"
               />
             </div>
             
+            {/* Data Type Filter */}
             <Select value={filterDataType} onValueChange={setFilterDataType}>
               <SelectTrigger>
                 <SelectValue placeholder="Filter by data type" />
               </SelectTrigger>
               <SelectContent>
-                {dataTypes.map(type => (
+                {dataTypes.map((type) => (
                   <SelectItem key={type} value={type}>
-                    {type === "all" ? "All Types" : type}
+                    {type === "all" ? "All Data Types" : type}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-
+            
+            {/* Toggle Filters */}
             <div className="flex items-center space-x-2">
               <Switch
-                id="mandatory-only"
                 checked={showMandatoryOnly}
                 onCheckedChange={setShowMandatoryOnly}
               />
-              <Label htmlFor="mandatory-only" className="text-sm">Mandatory only</Label>
+              <Label className="text-sm">Mandatory Only</Label>
             </div>
-
+            
             <div className="flex items-center space-x-2">
               <Switch
-                id="empty-only"
                 checked={showEmptyOnly}
                 onCheckedChange={setShowEmptyOnly}
               />
-              <Label htmlFor="empty-only" className="text-sm">Empty only</Label>
+              <Label className="text-sm">Empty Values Only</Label>
             </div>
+          </div>
+          
+          {/* Auto-save toggle */}
+          <div className="flex items-center space-x-2 mt-4">
+            <Switch
+              checked={autoSave}
+              onCheckedChange={setAutoSave}
+            />
+            <Label className="text-sm">Enable Auto-save (every 30 seconds)</Label>
           </div>
         </CardContent>
       </Card>
 
-      {/* Configuration Forms */}
+      {/* Configuration Parameters */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center space-x-2">
-            <Settings className="w-5 h-5" />
-            <span>iFlow Configuration Parameters</span>
+            <Settings className="w-5 h-5 text-green-600" />
+            <span>Configuration Parameters</span>
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {iflowConfigurations.length === 0 ? (
+          {filteredConfigurations.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
-              <FileText className="w-12 h-12 mx-auto mb-4 opacity-50" />
-              <p>No configuration parameters found for the selected iFlows.</p>
+              <Settings className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+              <p>No configuration parameters found</p>
+              <p className="text-sm">
+                {iflowConfigurations.length === 0
+                  ? "Please select integration flows in the previous step"
+                  : "Try adjusting your search filters"}
+              </p>
             </div>
           ) : (
-            <Tabs defaultValue={iflowConfigurations[0]?.iflowId}>
-              <TabsList className="grid w-full grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                {iflowConfigurations.map((config) => {
-                  const filteredParams = getFilteredParameters(config.parameters);
-                  const configuredCount = config.parameters.filter(param => {
-                    const value = configurationChanges[config.iflowId]?.[param.ParameterKey];
-                    return value && value.trim() !== "";
-                  }).length;
-                  
-                  return (
-                    <TabsTrigger
-                      key={config.iflowId}
-                      value={config.iflowId}
-                      className="text-xs flex flex-col items-center p-2"
-                    >
-                      <span className="truncate max-w-32">{config.iflowName}</span>
-                      <div className="flex space-x-1 mt-1">
-                        <Badge variant="outline" className="text-xs">
-                          {filteredParams.length}/{config.parameters.length}
-                        </Badge>
-                        <Badge variant={configuredCount === config.parameters.length ? "default" : "secondary"} className="text-xs">
-                          {configuredCount} configured
-                        </Badge>
-                      </div>
-                    </TabsTrigger>
-                  );
-                })}
+            <Tabs defaultValue={filteredConfigurations[0]?.iflowId} className="w-full">
+              <TabsList className="grid w-full" style={{ gridTemplateColumns: `repeat(${filteredConfigurations.length}, 1fr)` }}>
+                {filteredConfigurations.map((config) => (
+                  <TabsTrigger key={config.iflowId} value={config.iflowId} className="text-sm">
+                    <div className="flex flex-col items-center">
+                      <span className="truncate max-w-[100px]">{config.iflowName}</span>
+                      <Badge variant="secondary" className="mt-1 text-xs">
+                        {config.parameters.length} params
+                      </Badge>
+                    </div>
+                  </TabsTrigger>
+                ))}
               </TabsList>
 
-              {iflowConfigurations.map((config) => {
-                const filteredParameters = getFilteredParameters(config.parameters);
-                
-                return (
-                  <TabsContent key={config.iflowId} value={config.iflowId}>
-                    {filteredParameters.length === 0 ? (
-                      <div className="text-center py-8 text-gray-500">
-                        <Settings className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                        <p>No configuration parameters match the current filters.</p>
-                        <p className="text-sm mt-2">
-                          Try adjusting your search criteria or filters.
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="space-y-4">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <h3 className="text-lg font-medium">{config.iflowName}</h3>
-                            <p className="text-sm text-gray-600">Version: {config.version}</p>
-                          </div>
-                          <div className="flex space-x-2">
-                            <Badge variant="outline">
-                              {filteredParameters.length} parameters shown
-                            </Badge>
-                            <Badge variant="secondary">
-                              {config.parameters.length} total
-                            </Badge>
-                          </div>
+              {filteredConfigurations.map((config) => (
+                <TabsContent key={config.iflowId} value={config.iflowId} className="space-y-4">
+                  <div className="bg-gray-50 p-4 rounded-lg">
+                    <h3 className="font-medium text-gray-900 mb-2">
+                      {config.iflowName} (v{config.version})
+                    </h3>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-gray-600">
+                      <p><strong>iFlow ID:</strong> {config.iflowId}</p>
+                      <p><strong>Version:</strong> {config.version}</p>
+                      <p><strong>Environment:</strong> {selectedEnvironment}</p>
+                      <p><strong>Parameters:</strong> {config.parameters.length}</p>
+                    </div>
+                  </div>
+
+                  {config.parameters.length === 0 ? (
+                    <div className="text-center py-8 text-gray-500">
+                      <Info className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+                      <p>No configuration parameters available for this iFlow</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="flex justify-between items-center">
+                        <h4 className="font-medium">Configuration Parameters</h4>
+                        <div className="text-sm text-gray-500">
+                          {config.parameters.filter(p => {
+                            const currentValue = configurationChanges[config.iflowId]?.[p.ParameterKey] || p.ParameterValue;
+                            return currentValue && currentValue.trim() !== "";
+                          }).length} of {config.parameters.length} configured
                         </div>
+                      </div>
 
-                        <div className="grid gap-4">
-                          {filteredParameters.map((param) => {
-                            const fieldKey = `${config.iflowId}-${param.ParameterKey}`;
-                            const isMasked = maskedFields.has(fieldKey);
-                            const isSecure = param.DataType === "secureParameter" || param.DataType === "password";
-                            const currentValue = configurationChanges[config.iflowId]?.[param.ParameterKey] || "";
-                            const hasChanged = currentValue !== param.ParameterValue;
+                      <div className="space-y-4">
+                        {config.parameters.map((param) => {
+                          const fieldId = `${config.iflowId}-${param.ParameterKey}`;
+                          const ismasked = maskedFields.has(fieldId);
+                          const currentValue = configurationChanges[config.iflowId]?.[param.ParameterKey] || param.ParameterValue;
+                          const isSecure = param.DataType === "secureParameter" || param.DataType === "password";
+                          const isEmpty = !currentValue || currentValue.trim() === "";
+                          const isRequired = param.Mandatory;
 
-                            return (
-                              <div
-                                key={param.ParameterKey}
-                                className={`border rounded-lg p-4 space-y-3 transition-colors ${
-                                  hasChanged ? 'border-blue-200 bg-blue-50' : ''
-                                }`}
-                              >
-                                <div className="flex items-center justify-between">
-                                  <div className="flex items-center space-x-2">
-                                    <Label
-                                      htmlFor={fieldKey}
-                                      className="text-sm font-medium"
-                                    >
+                          return (
+                            <div
+                              key={param.ParameterKey}
+                              className={`border rounded-lg p-4 ${
+                                isRequired && isEmpty
+                                  ? "border-red-200 bg-red-50"
+                                  : "border-gray-200 hover:border-gray-300"
+                              }`}
+                            >
+                              <div className="flex items-start justify-between mb-3">
+                                <div className="flex-1">
+                                  <div className="flex items-center space-x-2 mb-1">
+                                    <Label className="font-medium" htmlFor={fieldId}>
                                       {param.ParameterKey}
-                                      {param.Mandatory && (
-                                        <span className="text-red-500 ml-1">*</span>
-                                      )}
                                     </Label>
-                                    {hasChanged && (
-                                      <Badge variant="outline" className="text-xs text-blue-600">
-                                        Modified
-                                      </Badge>
-                                    )}
-                                  </div>
-                                  <div className="flex items-center space-x-2">
-                                    <Badge variant="secondary" className="text-xs">
-                                      {param.DataType}
-                                    </Badge>
-                                    {param.Mandatory && (
+                                    {isRequired && (
                                       <Badge variant="destructive" className="text-xs">
                                         Required
                                       </Badge>
                                     )}
-                                    {isSecure && (
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={() => toggleFieldMask(fieldKey)}
-                                        className="h-6 w-6 p-0"
-                                      >
-                                        {isMasked ? (
-                                          <EyeOff className="w-3 h-3" />
-                                        ) : (
-                                          <Eye className="w-3 h-3" />
-                                        )}
-                                      </Button>
-                                    )}
-                                    {param.Description && (
-                                      <TooltipProvider>
-                                        <Tooltip>
-                                          <TooltipTrigger asChild>
-                                            <Info className="w-4 h-4 text-gray-400" />
-                                          </TooltipTrigger>
-                                          <TooltipContent>
-                                            <p className="max-w-xs">{param.Description}</p>
-                                          </TooltipContent>
-                                        </Tooltip>
-                                      </TooltipProvider>
-                                    )}
+                                    <Badge variant="outline" className="text-xs">
+                                      {param.DataType}
+                                    </Badge>
                                   </div>
+                                  {param.Description && (
+                                    <p className="text-sm text-gray-600 mb-2">
+                                      {param.Description}
+                                    </p>
+                                  )}
                                 </div>
+                                {isSecure && (
+                                  <TooltipProvider>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() => maskField(fieldId)}
+                                        >
+                                          {ismasked ? (
+                                            <EyeOff className="w-4 h-4" />
+                                          ) : (
+                                            <Eye className="w-4 h-4" />
+                                          )}
+                                        </Button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>
+                                        {ismasked ? "Show value" : "Hide value"}
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </TooltipProvider>
+                                )}
+                              </div>
 
-                                {param.Description && (
-                                  <p className="text-sm text-gray-600">
-                                    {param.Description}
-                                  </p>
+                              <div className="space-y-2">
+                                {param.DataType === "boolean" ? (
+                                  <Select
+                                    value={currentValue || ""}
+                                    onValueChange={(value) =>
+                                      updateConfiguration(config.iflowId, param.ParameterKey, value)
+                                    }
+                                  >
+                                    <SelectTrigger id={fieldId}>
+                                      <SelectValue placeholder="Select value" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="true">True</SelectItem>
+                                      <SelectItem value="false">False</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                ) : param.DataType === "text" || param.DataType === "longtext" ? (
+                                  <Textarea
+                                    id={fieldId}
+                                    value={currentValue || ""}
+                                    onChange={(e) =>
+                                      updateConfiguration(config.iflowId, param.ParameterKey, e.target.value)
+                                    }
+                                    placeholder={`Enter ${param.ParameterKey}...`}
+                                    rows={3}
+                                    className="resize-y"
+                                  />
+                                ) : (
+                                  <Input
+                                    id={fieldId}
+                                    type={isSecure ? (ismasked ? "password" : "text") : "text"}
+                                    value={currentValue || ""}
+                                    onChange={(e) =>
+                                      updateConfiguration(config.iflowId, param.ParameterKey, e.target.value)
+                                    }
+                                    placeholder={`Enter ${param.ParameterKey}...`}
+                                    className={isRequired && isEmpty ? "border-red-300" : ""}
+                                  />
                                 )}
 
-                                <div className="space-y-2">
-                                  {param.DataType === "xstring" ||
-                                  param.DataType === "text" ||
-                                  param.DataType === "longtext" ? (
-                                    <Textarea
-                                      id={fieldKey}
-                                      value={currentValue}
-                                      onChange={(e) =>
-                                        updateConfiguration(
-                                          config.iflowId,
-                                          param.ParameterKey,
-                                          e.target.value,
-                                        )
-                                      }
-                                      placeholder={`Enter ${param.ParameterKey} for ${selectedEnvironment}`}
-                                      className="w-full"
-                                      rows={3}
-                                    />
-                                  ) : param.DataType === "boolean" ? (
-                                    <Select
-                                      value={currentValue || ""}
-                                      onValueChange={(value) =>
-                                        updateConfiguration(
-                                          config.iflowId,
-                                          param.ParameterKey,
-                                          value,
-                                        )
-                                      }
-                                    >
-                                      <SelectTrigger>
-                                        <SelectValue placeholder="Select true or false" />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        <SelectItem value="true">True</SelectItem>
-                                        <SelectItem value="false">False</SelectItem>
-                                      </SelectContent>
-                                    </Select>
-                                  ) : (
-                                    <div className="relative">
-                                      <Input
-                                        id={fieldKey}
-                                        type={
-                                          isSecure && !isMasked
-                                            ? "password"
-                                            : param.DataType === "number" || param.DataType === "integer"
-                                            ? "number"
-                                            : "text"
-                                        }
-                                        value={
-                                          isSecure && isMasked && currentValue 
-                                            ? "••••••••" 
-                                            : currentValue
-                                        }
-                                        onChange={(e) =>
-                                          updateConfiguration(
-                                            config.iflowId,
-                                            param.ParameterKey,
-                                            e.target.value,
-                                          )
-                                        }
-                                        onFocus={(e) => {
-                                          if (isSecure && isMasked) {
-                                            e.target.value = currentValue;
-                                          }
-                                        }}
-                                        placeholder={`Enter ${param.ParameterKey} for ${selectedEnvironment}`}
-                                        className="w-full"
-                                      />
-                                      {isSecure && (
-                                        <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                                          {currentValue ? (
-                                            <Lock className="w-4 h-4 text-gray-400" />
-                                          ) : (
-                                            <Unlock className="w-4 h-4 text-gray-400" />
-                                          )}
-                                        </div>
-                                      )}
+                                {/* Show validation errors */}
+                                {param.Mandatory && (!currentValue || currentValue.trim() === "") && (
+                                  <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-sm">
+                                    <div className="flex items-center space-x-2 text-red-600">
+                                      <AlertCircle className="w-4 h-4" />
+                                      <span>This field is required</span>
                                     </div>
-                                  )}
-                                  
-                                  {/* Show current vs default value comparison */}
-                                  {param.ParameterValue && 
-                                   param.ParameterValue !== currentValue && (
-                                    <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-sm">
-                                      <div className="flex items-center space-x-2">
-                                        <AlertTriangle className="w-4 h-4 text-yellow-600" />
-                                        <span className="font-medium">Default value:</span>
-                                        <code className="bg-gray-100 px-1 rounded">{param.ParameterValue}</code>
-                                      </div>
-                                    </div>
-                                  )}
-
-                                  {/* Show validation errors */}
-                                  {param.Mandatory && (!currentValue || currentValue.trim() === "") && (
-                                    <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-sm">
-                                      <div className="flex items-center space-x-2 text-red-600">
-                                        <AlertCircle className="w-4 h-4" />
-                                        <span>This field is required</span>
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
+                                  </div>
+                                )}
                               </div>
-                            );
-                          })}
-                        </div>
+                            </div>
+                          );
+                        })}
                       </div>
-                    )}
-                  </TabsContent>
-                );
-              })}
+                    </div>
+                  )}
+                </TabsContent>
+              ))}
             </Tabs>
           )}
         </CardContent>

@@ -1,3 +1,5 @@
+// File Path: src/pages/CICDPipeline.tsx
+// Filename: CICDPipeline.tsx
 import React, { useState } from "react";
 import {
   Card,
@@ -38,7 +40,6 @@ import Stage5Dependencies from "@/components/pipeline/Stage5Dependencies";
 import Stage6Upload from "@/components/pipeline/Stage6Upload";
 import Stage7Deploy from "@/components/pipeline/Stage7Deploy";
 import Stage8Testing from "@/components/pipeline/Stage8Testing";
-import TenantConnectionStatus from "@/components/pipeline/TenantConnectionStatus";
 
 const CICDPipeline = () => {
   const [currentStage, setCurrentStage] = useState(1);
@@ -164,9 +165,6 @@ const CICDPipeline = () => {
 
   return (
     <div className="space-y-8">
-      {/* SAP Tenant Connection Status */}
-      <TenantConnectionStatus />
-
       {/* Hero Header */}
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-blue-600 via-purple-600 to-indigo-600 p-8 text-white shadow-2xl">
         <div className="absolute inset-0 bg-black/20"></div>
@@ -182,83 +180,53 @@ const CICDPipeline = () => {
                 Enterprise Pipeline
               </Badge>
             </div>
-            <h1 className="text-4xl md:text-5xl font-black mb-3">
-              CI/CD Pipeline Automation
+            <h1 className="text-4xl font-black mb-2">
+              SAP CI/CD Pipeline Automation
             </h1>
             <p className="text-xl text-blue-100 max-w-2xl">
-              Automate SAP Integration Suite artifact deployment with our
-              8-stage intelligent pipeline
+              Streamline your SAP Integration Suite deployments with automated
+              pipeline management, validation, and testing.
             </p>
           </div>
-          <div className="hidden lg:flex items-center space-x-4">
-            <Button
-              variant="outline"
-              className="bg-white/10 border-white/30 text-white hover:bg-white/20 backdrop-blur-sm"
-            >
-              <History className="w-4 h-4 mr-2" />
-              Pipeline History
-            </Button>
-            <Button className="bg-white text-blue-600 hover:bg-gray-100 font-semibold shadow-xl">
-              <Play className="w-4 h-4 mr-2" />
-              Start New Pipeline
-            </Button>
+          <div className="hidden lg:block">
+            <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6">
+              <div className="text-center">
+                <div className="text-3xl font-bold">
+                  {Math.round(progressPercentage)}%
+                </div>
+                <div className="text-sm text-blue-100">Complete</div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Progress Overview */}
-      <Card className="border-0 shadow-2xl bg-white/80 backdrop-blur-sm overflow-hidden">
-        <div className="h-1 bg-gradient-to-r from-blue-500 via-purple-500 to-indigo-500"></div>
-        <CardHeader className="bg-gradient-to-r from-gray-50/50 to-blue-50/50">
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-2xl font-bold bg-gradient-to-r from-gray-900 to-blue-900 bg-clip-text text-transparent">
-                Pipeline Progress
-              </CardTitle>
-              <CardDescription className="text-lg">
-                Stage {currentStage} of {stages.length} -{" "}
-                {stages[currentStage - 1]?.title}
-              </CardDescription>
-            </div>
-            <div className="flex items-center space-x-4">
-              <Badge
-                variant={
-                  completedStages.length === stages.length
-                    ? "default"
-                    : "secondary"
-                }
-                className="text-lg px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg"
-              >
-                {Math.round(progressPercentage)}% Complete
-              </Badge>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="p-6">
+      {/* Pipeline Progress */}
+      <Card className="border-0 shadow-xl bg-gradient-to-r from-white to-blue-50">
+        <CardContent className="p-8">
+          {/* Progress Bar */}
           <div className="mb-8">
             <div className="flex items-center justify-between mb-3">
-              <span className="text-sm font-medium text-gray-600">
-                Overall Progress
-              </span>
-              <span className="text-sm font-bold text-gray-900">
-                {Math.round(progressPercentage)}%
-              </span>
+              <h3 className="text-lg font-semibold bg-gradient-to-r from-gray-900 to-blue-900 bg-clip-text text-transparent">
+                Pipeline Progress
+              </h3>
+              <Badge className="bg-blue-100 text-blue-800 border-blue-300">
+                Stage {currentStage} of {stages.length}
+              </Badge>
             </div>
             <div className="relative">
-              <Progress
-                value={progressPercentage}
-                className="h-3 bg-gray-200"
-              />
-              <div
-                className="absolute inset-0 bg-gradient-to-r from-blue-500 via-purple-500 to-green-500 h-3 rounded-full opacity-90"
-                style={{ width: `${progressPercentage}%` }}
-              ></div>
+              <div className="w-full bg-gray-200 rounded-full h-3 shadow-inner">
+                <div
+                  className="bg-gradient-to-r from-blue-500 to-purple-500 h-3 rounded-full transition-all duration-700 shadow-lg opacity-90"
+                  style={{ width: `${progressPercentage}%` }}
+                ></div>
+              </div>
             </div>
           </div>
 
-          {/* Single Row Stage Navigation */}
+          {/* Single Row Stage Navigation - Increased Width */}
           <div className="relative">
-            <div className="flex space-x-1 overflow-x-auto pb-4 scrollbar-hide">
+            <div className="flex space-x-2 overflow-x-auto pb-4 scrollbar-hide">
               {stages.map((stage, index) => {
                 const Icon = stage.icon;
                 const status = getStageStatus(stage.id);
@@ -272,7 +240,7 @@ const CICDPipeline = () => {
                     <button
                       onClick={() => handleStageNavigation(stage.id)}
                       className={cn(
-                        "relative flex flex-col items-center p-2 rounded-xl border-2 transition-all duration-500 min-w-[90px] w-[90px] group transform hover:scale-105",
+                        "relative flex flex-col items-center p-3 rounded-xl border-2 transition-all duration-500 min-w-[110px] w-[110px] group transform hover:scale-105",
                         status === "completed" &&
                           "border-green-300 bg-gradient-to-br from-green-50 to-emerald-50 text-green-800 shadow-lg shadow-green-500/20",
                         status === "active" &&
@@ -291,78 +259,54 @@ const CICDPipeline = () => {
                             "absolute inset-0 rounded-xl blur-lg opacity-15",
                             status === "completed"
                               ? "bg-green-500"
-                              : `bg-gradient-to-br ${stage.color}`,
+                              : "bg-blue-500",
                           )}
                         ></div>
                       )}
 
-                      {/* Stage number badge */}
-                      <div
-                        className={cn(
-                          "absolute -top-1 -left-1 w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold border-2 bg-white",
-                          status === "completed" &&
-                            "border-green-500 text-green-600 bg-green-50",
-                          status === "active" &&
-                            "border-blue-500 text-blue-600 bg-blue-50",
-                          status === "pending" &&
-                            "border-gray-300 text-gray-500",
-                        )}
-                      >
-                        {stage.id}
-                      </div>
-
-                      <div className="relative flex items-center justify-center mb-2">
-                        <div
+                      {/* Icon */}
+                      <div className="relative mb-2">
+                        <Icon
                           className={cn(
-                            "p-2 rounded-lg transition-all duration-300",
-                            status === "completed" &&
-                              "bg-gradient-to-br from-green-500 to-emerald-500 text-white",
-                            status === "active" &&
-                              `bg-gradient-to-br ${stage.color} text-white`,
-                            status === "pending" && "bg-gray-200 text-gray-400",
+                            "w-6 h-6 transition-all duration-300",
+                            status === "completed"
+                              ? "text-green-600"
+                              : status === "active"
+                                ? "text-blue-600"
+                                : "text-gray-400",
                           )}
-                        >
-                          <Icon className="w-4 h-4" />
-                        </div>
+                        />
                         {status === "completed" && (
-                          <div className="absolute -top-0.5 -right-0.5">
-                            <CheckCircle className="w-3 h-3 text-green-600 bg-white rounded-full" />
-                          </div>
-                        )}
-                        {status === "active" && (
-                          <div className="absolute -top-0.5 -right-0.5">
-                            <Clock className="w-3 h-3 text-blue-600 bg-white rounded-full animate-pulse" />
-                          </div>
+                          <CheckCircle className="absolute -top-1 -right-1 w-4 h-4 text-green-500 bg-white rounded-full" />
                         )}
                       </div>
 
-                      <div className="text-center px-1">
-                        <div className="text-xs font-bold mb-1 leading-tight">
+                      {/* Stage Title */}
+                      <div className="text-center">
+                        <div className="text-xs font-semibold leading-tight mb-1">
                           {stage.shortTitle}
                         </div>
-                        <div className="text-xs opacity-75 leading-tight">
-                          {stage.description.length > 20
-                            ? stage.description.substring(0, 18) + "..."
-                            : stage.description}
+                        <div className="text-[10px] leading-tight opacity-80 line-clamp-2">
+                          {stage.description}
                         </div>
                       </div>
 
-                      {/* Progress indicator */}
-                      <div className="absolute bottom-0 left-0 w-full h-1 bg-gray-200 rounded-b-xl overflow-hidden">
+                      {/* Status indicator */}
+                      <div className="absolute -bottom-1 left-1/2 transform -translate-x-1/2">
                         <div
                           className={cn(
-                            "h-full transition-all duration-1000",
-                            status === "completed" &&
-                              "bg-gradient-to-r from-green-500 to-emerald-500 w-full",
-                            status === "active" &&
-                              `bg-gradient-to-r ${stage.color} w-3/4 animate-pulse`,
-                            status === "pending" && "bg-gray-300 w-0",
+                            "w-2 h-2 rounded-full transition-all duration-300",
+                            status === "completed"
+                              ? "bg-green-500"
+                              : status === "active"
+                                ? "bg-blue-500"
+                                : "bg-gray-300",
                           )}
-                        ></div>
+                        />
                       </div>
                     </button>
 
-                    {/* Connector arrow */}
+                    {/* Arrow connector between stages */}
                     {!isLast && (
                       <div className="flex-shrink-0 mx-1">
                         <ChevronRight

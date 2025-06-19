@@ -1,3 +1,5 @@
+// File Path: src/pages/Administration.tsx
+// Filename: Administration.tsx
 import React from "react";
 import {
   Card,
@@ -20,7 +22,7 @@ import {
 import TenantRegistration from "@/components/administration/TenantRegistration";
 // import WorkflowManagement from "@/components/administration/WorkflowManagement";
 import WorkflowManagementBasic from "@/components/administration/WorkflowManagementBasic";
-import BackendStatus from "@/components/administration/BackendStatus";
+import TenantConnectionStatus from "@/components/pipeline/TenantConnectionStatus";
 
 const Administration: React.FC = () => {
   const systemStats = [
@@ -62,54 +64,58 @@ const Administration: React.FC = () => {
     <div className="space-y-8">
       {/* Page Header */}
       <div className="relative">
-        <div className="absolute inset-0 bg-gradient-to-r from-blue-50 via-white to-purple-50 rounded-xl -z-10"></div>
-        <div className="p-8 text-center">
-          <div className="flex items-center justify-center space-x-3 mb-4">
-            <div className="relative">
-              <div className="absolute inset-0 bg-gradient-to-r from-blue-600 to-purple-600 rounded-2xl blur-lg opacity-20"></div>
-              <div className="relative flex items-center justify-center w-16 h-16 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-2xl shadow-xl">
-                <Settings className="w-8 h-8" />
+        <div className="bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 rounded-3xl p-8 text-white shadow-2xl">
+          <div className="absolute inset-0 bg-black/20 rounded-3xl"></div>
+          <div className="absolute top-0 right-0 w-96 h-96 bg-white/10 rounded-full blur-3xl transform translate-x-32 -translate-y-32"></div>
+          <div className="relative">
+            <div className="flex items-center space-x-4 mb-4">
+              <div className="p-3 bg-white/20 rounded-2xl backdrop-blur-sm">
+                <Shield className="w-8 h-8" />
               </div>
+              <Badge className="bg-white/20 text-white border-white/30 backdrop-blur-sm">
+                Administrative Console
+              </Badge>
             </div>
+            <h1 className="text-4xl font-black mb-3">
+              SAP CI/CD Administration
+            </h1>
+            <p className="text-xl text-blue-100 max-w-3xl">
+              Manage your SAP Integration Suite tenants, configure system
+              settings, and monitor the health of your CI/CD automation
+              platform.
+            </p>
           </div>
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-gray-900 via-blue-900 to-purple-900 bg-clip-text text-transparent mb-2">
-            System Administration
-          </h1>
-          <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-            Manage SAP Integration Suite tenants, configure OAuth connections,
-            and monitor system health
-          </p>
         </div>
       </div>
 
-      {/* System Overview Stats */}
+      {/* System Stats Dashboard */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {systemStats.map((stat, index) => {
           const Icon = stat.icon;
           return (
-            <Card key={index} className="relative overflow-hidden">
+            <Card
+              key={index}
+              className="relative overflow-hidden border-0 shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-105"
+            >
               <div
-                className={`absolute top-0 right-0 w-20 h-20 ${stat.bgColor} rounded-full -translate-y-8 translate-x-8 opacity-20`}
+                className={`absolute inset-0 ${stat.bgColor} opacity-50`}
               ></div>
-              <CardHeader className="pb-3">
+              <CardContent className="relative p-6">
                 <div className="flex items-center justify-between">
-                  <div className={`p-2 rounded-lg ${stat.bgColor}`}>
-                    <Icon className={`w-5 h-5 ${stat.color}`} />
+                  <div>
+                    <p className="text-sm font-medium text-gray-600 mb-1">
+                      {stat.title}
+                    </p>
+                    <p className="text-3xl font-black text-gray-900">
+                      {stat.value}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {stat.description}
+                    </p>
                   </div>
-                  <Badge variant="outline" className="text-xs">
-                    Live
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-1">
-                  <p className="text-2xl font-bold text-gray-900">
-                    {stat.value}
-                  </p>
-                  <p className="text-sm font-medium text-gray-700">
-                    {stat.title}
-                  </p>
-                  <p className="text-xs text-gray-500">{stat.description}</p>
+                  <div className={`${stat.bgColor} p-3 rounded-2xl`}>
+                    <Icon className={`w-6 h-6 ${stat.color}`} />
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -117,55 +123,19 @@ const Administration: React.FC = () => {
         })}
       </div>
 
-      {/* Security Notice */}
-      <Card className="border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50">
-        <CardContent className="p-6">
-          <div className="flex items-start space-x-4">
-            <div className="p-2 bg-blue-100 rounded-lg">
-              <Shield className="w-5 h-5 text-blue-600" />
-            </div>
-            <div className="flex-1">
-              <h3 className="font-semibold text-blue-900 mb-1">
-                Security & Compliance
-              </h3>
-              <p className="text-sm text-blue-800 mb-3">
-                All OAuth credentials are encrypted at rest and transmitted
-                securely over HTTPS. Connection tests are performed using
-                industry-standard security protocols.
-              </p>
-              <div className="flex items-center space-x-4 text-xs text-blue-700">
-                <div className="flex items-center space-x-1">
-                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                  <span>Encryption: AES-256</span>
-                </div>
-                <div className="flex items-center space-x-1">
-                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                  <span>Protocol: OAuth 2.0</span>
-                </div>
-                <div className="flex items-center space-x-1">
-                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                  <span>Transport: HTTPS/TLS 1.3</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Backend Configuration - Required for Pipeline */}
+      {/* Frontend → Backend → SAP Connection Status */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center space-x-2">
-            <Server className="w-6 h-6 text-purple-600" />
-            <span>Python Backend Configuration</span>
-          </CardTitle>
+          <div className="flex items-center space-x-2">
+            <Server className="w-6 h-6 text-green-600" />
+            <CardTitle className="text-xl">System Connection Status</CardTitle>
+          </div>
           <CardDescription>
-            Configure your Python FastAPI backend URL for CI/CD Pipeline
-            connectivity
+            Monitor the health and connectivity of your CI/CD pipeline components
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <BackendStatus />
+          <TenantConnectionStatus />
         </CardContent>
       </Card>
 

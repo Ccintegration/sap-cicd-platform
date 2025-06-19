@@ -1,3 +1,5 @@
+// File Path: src/lib/types.ts
+// Filename: types.ts
 export interface OAuthCredentials {
   clientId: string;
   clientSecret: string;
@@ -13,6 +15,7 @@ export interface SAPTenant {
   name: string;
   description?: string;
   baseUrl: string;
+  environment?: "dev" | "qa" | "production"; // Added environment field
   oauthCredentials: OAuthCredentials;
   status: "active" | "inactive" | "error";
   connectionStatus: "connected" | "disconnected" | "testing" | "error";
@@ -38,6 +41,7 @@ export interface TenantFormData {
   name: string;
   description?: string;
   baseUrl: string;
+  environment?: "dev" | "qa" | "production"; // Added environment field
   oauthCredentials: OAuthCredentials;
   isBaseTenant?: boolean;
 }
@@ -46,6 +50,7 @@ export interface JsonUploadData {
   name?: string;
   description?: string;
   baseUrl?: string;
+  environment?: "dev" | "qa" | "production"; // Added environment field for consistency
   clientId: string;
   clientSecret: string;
   tokenUrl: string;

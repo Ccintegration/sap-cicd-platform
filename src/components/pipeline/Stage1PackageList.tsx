@@ -1,9 +1,21 @@
+// File Path: src/components/pipeline/Stage1PackageList.tsx
+// Filename: Stage1PackageList.tsx
 import React, { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 import {
   Search,
   Package,
@@ -12,6 +24,8 @@ import {
   ArrowRight,
   Loader2,
   RefreshCw,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { PipelineSAPService } from "@/lib/pipeline-sap-service";
 
@@ -39,16 +53,50 @@ const Stage1PackageList: React.FC<Stage1Props> = ({
 }) => {
   const [packages, setPackages] = useState<Package[]>([]);
   const [filteredPackages, setFilteredPackages] = useState<Package[]>([]);
+  const [sortedPackages, setSortedPackages] = useState<Package[]>([]);
   const [selectedPackages, setSelectedPackages] = useState<string[]>(
     data.selectedPackages || [],
   );
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [packagesPerPage, setPackagesPerPage] = useState(10);
+  
+  // Calculate pagination values
+  const totalPages = Math.ceil(sortedPackages.length / packagesPerPage);
+  const startIndex = (currentPage - 1) * packagesPerPage;
+  const endIndex = startIndex + packagesPerPage;
+  const currentPackages = sortedPackages.slice(startIndex, endIndex);
 
   useEffect(() => {
     loadPackages();
   }, []);
+
+  useEffect(() => {
+    // Filter packages based on search term
+    const filtered = packages.filter(
+      (pkg) =>
+        pkg.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        pkg.description.toLowerCase().includes(searchTerm.toLowerCase()),
+    );
+    setFilteredPackages(filtered);
+  }, [packages, searchTerm]);
+
+  useEffect(() => {
+    // Sort packages by lastModified in descending order (latest first)
+    const sorted = [...filteredPackages].sort((a, b) => {
+      const dateA = new Date(a.lastModified).getTime();
+      const dateB = new Date(b.lastModified).getTime();
+      return dateB - dateA; // Descending order (latest first)
+    });
+    setSortedPackages(sorted);
+    
+    // Reset to first page when search or packages change
+    setCurrentPage(1);
+  }, [filteredPackages]);
 
   const loadPackages = async () => {
     setLoading(true);
@@ -82,48 +130,47 @@ const Stage1PackageList: React.FC<Stage1Props> = ({
     }
   };
 
-  useEffect(() => {
-    const filtered = packages.filter(
-      (pkg) =>
-        pkg.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        pkg.description.toLowerCase().includes(searchTerm.toLowerCase()),
-    );
-    setFilteredPackages(filtered);
-  }, [packages, searchTerm]);
-
   const handlePackageToggle = (packageId: string) => {
     const newSelected = selectedPackages.includes(packageId)
       ? selectedPackages.filter((id) => id !== packageId)
       : [...selectedPackages, packageId];
 
     setSelectedPackages(newSelected);
-    
-    // Only update data, DO NOT call onComplete to prevent automatic routing
-    // onComplete will only be called when user clicks Next button
   };
 
   const handleSelectAll = () => {
-    if (selectedPackages.length === filteredPackages.length) {
-      setSelectedPackages([]);
+    if (selectedPackages.length === currentPackages.length) {
+      // Deselect all packages on current page
+      const currentPageIds = currentPackages.map(pkg => pkg.id);
+      setSelectedPackages(selectedPackages.filter(id => !currentPageIds.includes(id)));
     } else {
-      const allIds = filteredPackages.map((pkg) => pkg.id);
-      setSelectedPackages(allIds);
+      // Select all packages on current page
+      const currentPageIds = currentPackages.map(pkg => pkg.id);
+      const newSelected = [...new Set([...selectedPackages, ...currentPageIds])];
+      setSelectedPackages(newSelected);
     }
   };
 
   const handleNext = () => {
-    // Only proceed to next stage when user explicitly clicks Next button
     if (selectedPackages.length === 0) {
       alert("Please select at least one package before proceeding.");
       return;
     }
 
-    // Update data with final selection and proceed to next stage
     onComplete({ 
       ...data,
       selectedPackages: selectedPackages 
     });
     onNext();
+  };
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+  };
+
+  const handlePackagesPerPageChange = (value: string) => {
+    setPackagesPerPage(parseInt(value));
+    setCurrentPage(1); // Reset to first page
   };
 
   const getStatusBadgeColor = (status: string) => {
@@ -140,6 +187,44 @@ const Stage1PackageList: React.FC<Stage1Props> = ({
   };
 
   const canProceed = selectedPackages.length > 0;
+
+  // Generate page numbers for pagination
+  const getPageNumbers = () => {
+    const pages = [];
+    const maxVisiblePages = 10;
+    
+    if (totalPages <= maxVisiblePages) {
+      for (let i = 1; i <= totalPages; i++) {
+        pages.push(i);
+      }
+    } else {
+      // Always show first page
+      pages.push(1);
+      
+      if (currentPage > 4) {
+        pages.push('...');
+      }
+      
+      // Show pages around current page
+      const start = Math.max(2, currentPage - 2);
+      const end = Math.min(totalPages - 1, currentPage + 2);
+      
+      for (let i = start; i <= end; i++) {
+        pages.push(i);
+      }
+      
+      if (currentPage < totalPages - 3) {
+        pages.push('...');
+      }
+      
+      // Always show last page
+      if (totalPages > 1) {
+        pages.push(totalPages);
+      }
+    }
+    
+    return pages;
+  };
 
   if (loading) {
     return (
@@ -172,63 +257,42 @@ const Stage1PackageList: React.FC<Stage1Props> = ({
           pipeline. You can select multiple packages. Data is fetched from your SAP Integration Suite via the
           backend API.
         </p>
-
+      </CardHeader>
+      <CardContent className="space-y-6">
         {error && (
-          <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
-            <div className="flex items-start space-x-2">
-              <div className="text-red-600">❌</div>
-              <div>
-                <p className="text-sm font-medium text-red-800">
-                  Connection Error
-                </p>
-                <p className="text-sm text-red-700 mt-1">{error}</p>
-                <div className="mt-3 flex space-x-2">
-                  <Button variant="outline" size="sm" onClick={loadPackages}>
-                    <RefreshCw className="w-4 h-4 mr-1" />
-                    Retry
-                  </Button>
-                  {(error.includes("Backend URL not configured") ||
-                    error.includes("Cannot connect to backend")) && (
-                    <Button variant="outline" size="sm" asChild>
-                      <a href="/administration">Go to Administration</a>
-                    </Button>
-                  )}
-                  {error.includes("No SAP tenant registered") && (
-                    <Button variant="outline" size="sm" asChild>
-                      <a href="/administration">Register Tenant</a>
-                    </Button>
-                  )}
+          <div className="bg-red-50 border border-red-200 rounded-md p-4">
+            <div className="flex items-start space-x-3">
+              <div className="flex-shrink-0">
+                <div className="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center">
+                  <div className="w-2 h-2 bg-red-600 rounded-full"></div>
                 </div>
               </div>
-            </div>
-          </div>
-        )}
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {error && (
-          <div className="p-4 bg-red-50 border border-red-200 rounded-md">
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <p className="text-red-800 text-sm font-medium">
-                  Failed to load packages from SAP
-                </p>
-                <Button variant="outline" size="sm" onClick={loadPackages}>
+              <div>
+                <h3 className="text-sm font-medium text-red-800 mb-1">
+                  Unable to load packages
+                </h3>
+                <p className="text-sm text-red-700">{error}</p>
+                <div className="text-xs text-red-600 space-y-1 mt-2">
+                  <p>• Check that your Python backend is running</p>
+                  <p>• Verify backend URL configuration in Administration</p>
+                  <p>• Ensure SAP tenant credentials are valid</p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={loadPackages}
+                  className="mt-3"
+                >
                   <RefreshCw className="w-4 h-4 mr-1" />
                   Retry
                 </Button>
               </div>
-              <p className="text-red-700 text-xs">{error}</p>
-              <div className="text-xs text-red-600 space-y-1">
-                <p>• Check that your Python backend is running</p>
-                <p>• Verify backend URL configuration in Administration</p>
-                <p>• Ensure SAP tenant credentials are valid</p>
-              </div>
             </div>
           </div>
         )}
 
-        {/* Search and Select All */}
-        <div className="flex items-center space-x-4">
+        {/* Search and Controls */}
+        <div className="flex items-center justify-between space-x-4">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
             <Input
@@ -238,20 +302,61 @@ const Stage1PackageList: React.FC<Stage1Props> = ({
               className="pl-9"
             />
           </div>
+          
+          {/* Packages per page selector */}
+          <div className="flex items-center space-x-2">
+            <label className="text-sm text-gray-600">Show:</label>
+            <Select value={packagesPerPage.toString()} onValueChange={handlePackagesPerPageChange}>
+              <SelectTrigger className="w-20">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="10">10</SelectItem>
+                <SelectItem value="20">20</SelectItem>
+                <SelectItem value="30">30</SelectItem>
+              </SelectContent>
+            </Select>
+            <span className="text-sm text-gray-600">per page</span>
+          </div>
+
           <Button
             variant="outline"
             onClick={handleSelectAll}
-            disabled={filteredPackages.length === 0}
+            disabled={currentPackages.length === 0}
           >
-            {selectedPackages.length === filteredPackages.length
-              ? "Deselect All"
-              : "Select All"}
+            {selectedPackages.filter(id => currentPackages.some(pkg => pkg.id === id)).length === currentPackages.length
+              ? "Deselect Page"
+              : "Select Page"}
           </Button>
         </div>
 
+        {/* Results summary */}
+        <div className="flex items-center justify-between text-sm text-gray-600">
+          <div>
+            {sortedPackages.length > 0 && (
+              <span>
+                Showing {startIndex + 1}-{Math.min(endIndex, sortedPackages.length)} of {sortedPackages.length} packages
+                {searchTerm && (
+                  <span className="ml-1">(filtered from {packages.length} total)</span>
+                )}
+                <span className="text-green-600 ml-2">
+                  (📡 Real data from SAP Integration Suite, sorted by latest updated)
+                </span>
+              </span>
+            )}
+          </div>
+          <div>
+            {selectedPackages.length > 0 && (
+              <span className="font-medium text-blue-600">
+                {selectedPackages.length} package{selectedPackages.length === 1 ? '' : 's'} selected
+              </span>
+            )}
+          </div>
+        </div>
+
         {/* Packages List */}
-        <div className="space-y-3 max-h-96 overflow-y-auto">
-          {filteredPackages.length === 0 ? (
+        <div className="space-y-3">
+          {currentPackages.length === 0 ? (
             <div className="text-center py-8">
               <Package className="w-12 h-12 text-gray-300 mx-auto mb-4" />
               <p className="text-gray-500">
@@ -271,7 +376,7 @@ const Stage1PackageList: React.FC<Stage1Props> = ({
               )}
             </div>
           ) : (
-            filteredPackages.map((pkg) => (
+            currentPackages.map((pkg) => (
               <div
                 key={pkg.id}
                 className={`border rounded-lg p-4 transition-colors cursor-pointer ${
@@ -327,6 +432,52 @@ const Stage1PackageList: React.FC<Stage1Props> = ({
           )}
         </div>
 
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-center space-x-2">
+            <Pagination>
+              <PaginationContent>
+                <PaginationItem>
+                  <PaginationPrevious 
+                    onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
+                    className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                  />
+                </PaginationItem>
+                
+                {getPageNumbers().map((page, index) => (
+                  <PaginationItem key={index}>
+                    {page === '...' ? (
+                      <PaginationEllipsis />
+                    ) : (
+                      <PaginationLink
+                        onClick={() => handlePageChange(page as number)}
+                        isActive={currentPage === page}
+                        className="cursor-pointer"
+                      >
+                        {page}
+                      </PaginationLink>
+                    )}
+                  </PaginationItem>
+                ))}
+                
+                <PaginationItem>
+                  <PaginationNext 
+                    onClick={() => handlePageChange(Math.min(totalPages, currentPage + 1))}
+                    className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                  />
+                </PaginationItem>
+              </PaginationContent>
+            </Pagination>
+          </div>
+        )}
+
+        {/* Page info */}
+        {totalPages > 1 && (
+          <div className="text-center text-sm text-gray-500">
+            Page {currentPage} of {totalPages}
+          </div>
+        )}
+
         {/* Selection Summary */}
         {selectedPackages.length > 0 && (
           <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
@@ -346,10 +497,7 @@ const Stage1PackageList: React.FC<Stage1Props> = ({
           <div className="text-sm text-gray-500">
             {packages.length > 0 && (
               <span>
-                Showing {filteredPackages.length} of {packages.length} packages
-                <span className="text-green-600 ml-2">
-                  (📡 Real data from SAP Integration Suite)
-                </span>
+                Total: {packages.length} packages available
               </span>
             )}
           </div>
