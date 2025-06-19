@@ -186,30 +186,213 @@ async def get_packages():
         )
 
 @app.get("/api/sap/iflows/{iflow_id}/configurations")
-async def get_iflow_configurations(iflow_id: str, version: str) -> APIResponse:
-    """Get configuration parameters for a specific integration flow"""
+async def get_iflow_configurations(iflow_id: str, version: str = "active") -> APIResponse:
+    """Get configuration parameters for a specific integration flow - enhanced endpoint"""
+    global sap_client
+
+    if not sap_client:
+        logger.error("SAP client not initialized")
+        raise HTTPException(status_code=500, detail="SAP client not initialized")
+
+    try:
+        logger.info(f"Fetching configuration for iFlow: {iflow_id}, version: {version}")
+        
+        # Get configurations from SAP
+        configurations = await sap_client.get_iflow_configurations(iflow_id, version)
+        
+        # Transform configurations to expected frontend format
+        parameters = []
+        for config in configurations:
+            try:
+                parameter = {
+                    "ParameterKey": config.get("ParameterKey", ""),
+                    "ParameterValue": config.get("ParameterValue", ""),
+                    "DataType": config.get("DataType", "string"),
+                    "Description": config.get("Description", ""),
+                    "Mandatory": config.get("Mandatory", False)
+                }
+                parameters.append(parameter)
+                logger.debug(f"Processed parameter: {parameter['ParameterKey']}")
+            except Exception as param_error:
+                logger.warning(f"Failed to process parameter {config}: {param_error}")
+                continue
+
+        response_data = {
+            "name": f"iFlow {iflow_id}",
+            "version": version,
+            "parameters": parameters,
+            "total_parameters": len(parameters)
+        }
+
+        logger.info(f"Successfully retrieved {len(parameters)} configuration parameters for {iflow_id}")
+        
+        return APIResponse(
+            success=True,
+            data=response_data,
+            message=f"Successfully retrieved {len(parameters)} configuration parameters for {iflow_id}",
+            timestamp=datetime.now().isoformat()
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to fetch iflow configuration: {str(e)}", exc_info=True)
+        
+        # Return empty configuration with error details instead of failing
+        error_response = {
+            "name": f"iFlow {iflow_id}",
+            "version": version,
+            "parameters": [],
+            "total_parameters": 0,
+            "error": str(e)
+        }
+        
+        return APIResponse(
+            success=False,
+            data=error_response,
+            message=f"Failed to retrieve configuration for {iflow_id}: {str(e)}",
+            timestamp=datetime.now().isoformat()
+        )
+
+# Enhanced SAP client method for better error handling
+async def get_iflow_configurations(self, iflow_id: str, version: str) -> List[Dict[str, Any]]:
+    """Get configuration parameters for a specific integration flow - enhanced version"""
+    try:
+        logger.info(f"Fetching configurations for iFlow: {iflow_id}, version: {version}")
+
+        # SAP API: /IntegrationDesigntimeArtifacts(Id='{iflow_id}',Version='{version}')/Configurations
+        url = f"{self.base_url}/api/v1/IntegrationDesigntimeArtifacts(Id='{iflow_id}',Version='{version}')/Configurations"
+        
+        logger.debug(f"SAP API URL: {url}")
+
+        headers = await self._get_auth_headers()
+        
+        # Add timeout and retry logic
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            try:
+                response = await client.get(url, headers=headers)
+                
+                logger.debug(f"SAP API Response Status: {response.status_code}")
+                logger.debug(f"SAP API Response Headers: {dict(response.headers)}")
+                
+                if response.status_code == 200:
+                    try:
+                        data = response.json()
+                        logger.debug(f"SAP API Response Data Structure: {type(data)}")
+                        
+                        # Handle different response structures
+                        configurations = []
+                        
+                        if isinstance(data, dict):
+                            # OData format: {"d": {"results": [...]}}
+                            if "d" in data:
+                                if isinstance(data["d"], dict) and "results" in data["d"]:
+                                    configurations = data["d"]["results"]
+                                elif isinstance(data["d"], list):
+                                    configurations = data["d"]
+                            # Direct format: {"results": [...]}
+                            elif "results" in data:
+                                configurations = data["results"]
+                            # Simple format: {"configurations": [...]}
+                            elif "configurations" in data:
+                                configurations = data["configurations"]
+                            # Array format: [...]
+                            elif "value" in data:
+                                configurations = data["value"]
+                        elif isinstance(data, list):
+                            configurations = data
+                        
+                        logger.info(f"Found {len(configurations)} configuration parameters for {iflow_id}")
+                        logger.debug(f"Configuration parameters: {configurations}")
+                        
+                        # Validate and clean the configurations
+                        cleaned_configurations = []
+                        for config in configurations:
+                            if isinstance(config, dict):
+                                # Ensure required fields exist
+                                cleaned_config = {
+                                    "ParameterKey": config.get("ParameterKey", config.get("Key", "")),
+                                    "ParameterValue": config.get("ParameterValue", config.get("Value", "")),
+                                    "DataType": config.get("DataType", config.get("Type", "string")),
+                                    "Description": config.get("Description", ""),
+                                    "Mandatory": config.get("Mandatory", config.get("Required", False))
+                                }
+                                cleaned_configurations.append(cleaned_config)
+                        
+                        return cleaned_configurations
+                        
+                    except json.JSONDecodeError as json_error:
+                        logger.error(f"Failed to parse JSON response: {json_error}")
+                        logger.debug(f"Raw response content: {response.text[:500]}...")
+                        return []
+                        
+                elif response.status_code == 404:
+                    logger.warning(f"iFlow {iflow_id} not found or no configurations available")
+                    return []
+                elif response.status_code == 401:
+                    logger.error(f"Authentication failed for configurations request")
+                    # Try to refresh token and retry once
+                    await self._refresh_token()
+                    headers = await self._get_auth_headers()
+                    
+                    retry_response = await client.get(url, headers=headers)
+                    if retry_response.status_code == 200:
+                        data = retry_response.json()
+                        configurations = data.get("d", {}).get("results", [])
+                        return configurations
+                    else:
+                        logger.error(f"Retry also failed with status: {retry_response.status_code}")
+                        return []
+                else:
+                    logger.warning(f"Failed to get configurations for {iflow_id}: {response.status_code}")
+                    logger.debug(f"Error response: {response.text}")
+                    return []
+                    
+            except httpx.TimeoutException:
+                logger.error(f"Timeout while fetching configurations for {iflow_id}")
+                return []
+            except httpx.RequestError as req_error:
+                logger.error(f"Request error while fetching configurations: {req_error}")
+                return []
+
+    except Exception as e:
+        logger.error(f"Error fetching configurations for {iflow_id}: {str(e)}", exc_info=True)
+        return []
+
+
+@app.get("/api/sap/iflows/{iflow_id}/configurations/debug")
+async def debug_iflow_configurations(iflow_id: str, version: str = "active"):
+    """Debug endpoint to check configuration API response format"""
     global sap_client
 
     if not sap_client:
         raise HTTPException(status_code=500, detail="SAP client not initialized")
 
     try:
-        logger.info(f"Fetching configurations for iFlow: {iflow_id}, version: {version}")
-        configurations = await sap_client.get_iflow_configurations(iflow_id, version)
-
-        return APIResponse(
-            success=True,
-            data=configurations,
-            message=f"Successfully retrieved configurations for {iflow_id}",
-            timestamp=datetime.now().isoformat()
-        )
-
+        url = f"{sap_client.base_url}/api/v1/IntegrationDesigntimeArtifacts(Id='{iflow_id}',Version='{version}')/Configurations"
+        headers = await sap_client._get_auth_headers()
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(url, headers=headers)
+            
+            debug_info = {
+                "url": url,
+                "status_code": response.status_code,
+                "headers": dict(response.headers),
+                "content_type": response.headers.get("content-type"),
+                "content_length": response.headers.get("content-length"),
+                "raw_response": response.text[:1000] + "..." if len(response.text) > 1000 else response.text
+            }
+            
+            if response.status_code == 200:
+                try:
+                    debug_info["parsed_json"] = response.json()
+                except:
+                    debug_info["json_parse_error"] = "Failed to parse as JSON"
+            
+            return debug_info
+            
     except Exception as e:
-        logger.error(f"Failed to fetch iflow configurations: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to fetch iflow configurations: {str(e)}"
-        )
+        return {"error": str(e), "traceback": traceback.format_exc()}
+
 
 @app.get("/api/sap/iflows/{iflow_id}/configuration")
 async def get_iflow_configuration(iflow_id: str, version: str = "active") -> APIResponse:

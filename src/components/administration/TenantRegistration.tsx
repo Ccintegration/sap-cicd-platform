@@ -1,4 +1,6 @@
-import React, { useState } from "react";
+// File Path: src/components/administration/TenantRegistration.tsx
+// Filename: TenantRegistration.tsx
+import React, { useState, useEffect } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Card,
@@ -19,6 +21,10 @@ import {
   Users,
   Trash2,
   ExternalLink,
+  Loader2,
+  RefreshCw,
+  AlertTriangle,
+  XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import OAuthForm from "./OAuthForm";
@@ -30,13 +36,13 @@ import { TenantService } from "@/lib/tenant-service";
 const TenantRegistration: React.FC = () => {
   const [activeTab, setActiveTab] = useState<"form" | "upload">("form");
   const [isLoading, setIsLoading] = useState(false);
-  const [connectionResult, setConnectionResult] =
-    useState<ConnectionTestResult | null>(null);
+  const [connectionResult, setConnectionResult] = useState<ConnectionTestResult | null>(null);
   const [error, setError] = useState<string>("");
   const [registeredTenants, setRegisteredTenants] = useState<SAPTenant[]>([]);
   const [isLoadingTenants, setIsLoadingTenants] = useState(false);
+  const [testingTenantId, setTestingTenantId] = useState<string | null>(null);
 
-  React.useEffect(() => {
+  useEffect(() => {
     loadTenants();
   }, []);
 
@@ -46,7 +52,10 @@ const TenantRegistration: React.FC = () => {
       const tenants = await TenantService.getAllTenants();
       setRegisteredTenants(tenants);
     } catch (err) {
-      toast.error("Failed to load registered tenants");
+      console.error("Failed to load tenants:", err);
+      toast.error("Failed to load registered tenants", {
+        description: err instanceof Error ? err.message : "Unknown error occurred"
+      });
     } finally {
       setIsLoadingTenants(false);
     }
@@ -58,16 +67,30 @@ const TenantRegistration: React.FC = () => {
     setConnectionResult(null);
 
     try {
+      console.log("🚀 [TenantRegistration] Starting tenant registration process:", data);
+      
       // Test the connection first
+      toast.info("Testing connection...", {
+        description: "Validating credentials and connectivity to SAP tenant"
+      });
+
       const result = await TenantService.testConnection(
         data.oauthCredentials,
         data.baseUrl,
       );
+      
+      console.log("🔍 [TenantRegistration] Connection test result:", result);
       setConnectionResult(result);
 
       if (result.success) {
+        console.log("✅ [TenantRegistration] Connection successful, creating tenant...");
+        
         // If connection is successful, create the tenant
         const newTenant = await TenantService.createTenant(data);
+        
+        console.log("🎯 [TenantRegistration] Tenant created successfully:", newTenant);
+        
+        // Update connection status
         await TenantService.updateTenantConnectionStatus(
           newTenant.id,
           "connected",
@@ -82,14 +105,21 @@ const TenantRegistration: React.FC = () => {
 
         // Reset form state
         setConnectionResult(null);
+        setError("");
+        
+        // Switch to the tenants view to show the newly registered tenant
+        // You might want to emit an event or callback here
+        
       } else {
+        console.error("❌ [TenantRegistration] Connection test failed:", result);
+        setError(result.message || "Connection test failed");
         toast.error("Connection test failed", {
-          description: "Please check your credentials and try again.",
+          description: result.message || "Please check your credentials and try again.",
         });
       }
     } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : "An unexpected error occurred";
+      const errorMessage = err instanceof Error ? err.message : "An unexpected error occurred";
+      console.error("❌ [TenantRegistration] Registration failed:", err);
       setError(errorMessage);
       toast.error("Registration failed", {
         description: errorMessage,
@@ -101,24 +131,42 @@ const TenantRegistration: React.FC = () => {
 
   const handleDeleteTenant = async (id: string) => {
     try {
+      console.log("🗑️ [TenantRegistration] Deleting tenant:", id);
+      
+      // Show confirmation
+      if (!window.confirm("Are you sure you want to delete this tenant? This action cannot be undone.")) {
+        return;
+      }
+
       await TenantService.deleteTenant(id);
       toast.success("Tenant deleted successfully");
       await loadTenants();
     } catch (err) {
-      toast.error("Failed to delete tenant");
+      console.error("❌ [TenantRegistration] Failed to delete tenant:", err);
+      toast.error("Failed to delete tenant", {
+        description: err instanceof Error ? err.message : "Unknown error occurred"
+      });
     }
   };
 
   const handleRetryConnection = async (tenant: SAPTenant) => {
     try {
+      setTestingTenantId(tenant.id);
+      console.log("🔄 [TenantRegistration] Retrying connection for tenant:", tenant.id);
+
+      // Update status to testing
       await TenantService.updateTenantConnectionStatus(tenant.id, "testing");
       await loadTenants();
 
+      // Test connection
       const result = await TenantService.testConnection(
         tenant.oauthCredentials,
         tenant.baseUrl,
       );
 
+      console.log("🔍 [TenantRegistration] Retry connection result:", result);
+
+      // Update status based on result
       const newStatus = result.success ? "connected" : "error";
       await TenantService.updateTenantConnectionStatus(tenant.id, newStatus);
       await loadTenants();
@@ -128,9 +176,17 @@ const TenantRegistration: React.FC = () => {
         { description: result.message },
       );
     } catch (err) {
+      console.error("❌ [TenantRegistration] Connection retry failed:", err);
+      
+      // Update status to error
       await TenantService.updateTenantConnectionStatus(tenant.id, "error");
       await loadTenants();
-      toast.error("Connection test failed");
+      
+      toast.error("Connection test failed", {
+        description: err instanceof Error ? err.message : "Unknown error occurred"
+      });
+    } finally {
+      setTestingTenantId(null);
     }
   };
 
@@ -139,27 +195,39 @@ const TenantRegistration: React.FC = () => {
       connected: {
         variant: "default" as const,
         color: "bg-green-100 text-green-800 border-green-300",
+        icon: CheckCircle,
       },
       disconnected: {
         variant: "secondary" as const,
         color: "bg-gray-100 text-gray-800 border-gray-300",
+        icon: XCircle,
       },
       testing: {
         variant: "outline" as const,
         color: "bg-yellow-100 text-yellow-800 border-yellow-300",
+        icon: Loader2,
       },
       error: {
         variant: "destructive" as const,
         color: "bg-red-100 text-red-800 border-red-300",
+        icon: AlertTriangle,
       },
     };
 
     const config = variants[status];
+    const Icon = config.icon;
+    
     return (
-      <Badge className={config.color}>
-        {status.charAt(0).toUpperCase() + status.slice(1)}
+      <Badge className={`${config.color} flex items-center space-x-1`}>
+        <Icon className={`w-3 h-3 ${status === 'testing' ? 'animate-spin' : ''}`} />
+        <span>{status.charAt(0).toUpperCase() + status.slice(1)}</span>
       </Badge>
     );
+  };
+
+  const handleJsonUpload = async (data: TenantFormData) => {
+    console.log("📁 [TenantRegistration] Processing JSON upload:", data);
+    await handleSubmit(data);
   };
 
   return (
@@ -179,21 +247,15 @@ const TenantRegistration: React.FC = () => {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Tabs
-            value={activeTab}
-            onValueChange={(value) => setActiveTab(value as any)}
-          >
+          <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "form" | "upload")}>
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="form" className="flex items-center space-x-2">
                 <Edit className="w-4 h-4" />
                 <span>Manual Entry</span>
               </TabsTrigger>
-              <TabsTrigger
-                value="upload"
-                className="flex items-center space-x-2"
-              >
+              <TabsTrigger value="upload" className="flex items-center space-x-2">
                 <FileText className="w-4 h-4" />
-                <span>JSON Upload</span>
+                <span>Upload JSON</span>
               </TabsTrigger>
             </TabsList>
 
@@ -207,18 +269,36 @@ const TenantRegistration: React.FC = () => {
 
             <TabsContent value="upload" className="mt-6">
               <JsonUpload
-                onSubmit={handleSubmit}
+                onSubmit={handleJsonUpload}
                 isLoading={isLoading}
                 error={error}
               />
             </TabsContent>
           </Tabs>
 
-          <ConnectionTest
-            isLoading={isLoading}
-            result={connectionResult}
-            error={error}
-          />
+          {/* Connection Test Results - FIXED: Added isLoading prop */}
+          {connectionResult && (
+            <div className="mt-6">
+              <ConnectionTest
+                isLoading={isLoading}
+                result={connectionResult}
+                onRetry={() => {
+                  setConnectionResult(null);
+                  setError("");
+                }}
+              />
+            </div>
+          )}
+
+          {/* Error Display */}
+          {error && !connectionResult && (
+            <Alert className="mt-6 border-red-200 bg-red-50">
+              <AlertTriangle className="h-4 w-4 text-red-600" />
+              <AlertDescription className="text-red-700">
+                {error}
+              </AlertDescription>
+            </Alert>
+          )}
         </CardContent>
       </Card>
 
@@ -229,6 +309,9 @@ const TenantRegistration: React.FC = () => {
             <div className="flex items-center space-x-2">
               <Database className="w-6 h-6 text-blue-600" />
               <CardTitle className="text-xl">Registered Tenants</CardTitle>
+              <Badge variant="outline">
+                {registeredTenants.length} tenant{registeredTenants.length !== 1 ? 's' : ''}
+              </Badge>
             </div>
             <Button
               variant="outline"
@@ -236,57 +319,54 @@ const TenantRegistration: React.FC = () => {
               onClick={loadTenants}
               disabled={isLoadingTenants}
             >
-              Refresh
+              {isLoadingTenants ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4" />
+              )}
+              <span className="ml-2">Refresh</span>
             </Button>
           </div>
           <CardDescription>
-            Manage your registered SAP Integration Suite tenants and monitor
-            their connection status.
+            Manage your registered SAP Integration Suite tenants and test connections.
           </CardDescription>
         </CardHeader>
         <CardContent>
           {isLoadingTenants ? (
             <div className="flex items-center justify-center py-8">
-              <div className="text-center space-y-2">
-                <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
-                <p className="text-sm text-gray-500">Loading tenants...</p>
-              </div>
+              <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+              <span className="ml-3 text-gray-600">Loading tenants...</span>
             </div>
           ) : registeredTenants.length === 0 ? (
-            <div className="text-center py-12">
-              <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">
-                No Tenants Registered
-              </h3>
-              <p className="text-gray-500 mb-4">
-                Register your first SAP Integration Suite tenant using the form
-                above.
+            <div className="text-center py-8">
+              <Database className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+              <p className="text-gray-600 mb-2">No tenants registered yet</p>
+              <p className="text-sm text-gray-500">
+                Register your first SAP Integration Suite tenant above
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-4">
               {registeredTenants.map((tenant) => (
-                <Card key={tenant.id} className="relative">
+                <Card key={tenant.id} className="border border-gray-200">
                   <CardHeader className="pb-3">
-                    <div className="flex items-start justify-between">
-                      <div className="space-y-1">
-                        <div className="flex items-center space-x-2">
-                          <CardTitle className="text-lg">
-                            {tenant.name}
-                          </CardTitle>
-                          {tenant.isBaseTenant && (
-                            <Badge className="bg-blue-100 text-blue-800 border-blue-300">
-                              Base Tenant
-                            </Badge>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-3">
+                        <div>
+                          <CardTitle className="text-lg">{tenant.name}</CardTitle>
+                          {tenant.description && (
+                            <CardDescription className="mt-1">
+                              {tenant.description}
+                            </CardDescription>
                           )}
                         </div>
-                        {tenant.description && (
-                          <CardDescription className="text-sm">
-                            {tenant.description}
-                          </CardDescription>
-                        )}
                       </div>
-                      {getStatusBadge(tenant.connectionStatus)}
+                      <div className="flex items-center space-x-2">
+                        {getStatusBadge(tenant.connectionStatus)}
+                        <Badge variant="secondary">
+                          {tenant.environment}
+                        </Badge>
+                      </div>
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-3">
@@ -319,9 +399,9 @@ const TenantRegistration: React.FC = () => {
                         </p>
                       </div>
                       <div>
-                        <p className="font-medium text-gray-500">Status</p>
-                        <p className="text-gray-800 capitalize">
-                          {tenant.status}
+                        <p className="font-medium text-gray-500">Client ID</p>
+                        <p className="text-gray-800 font-mono">
+                          {tenant.oauthCredentials.clientId.substring(0, 12)}...
                         </p>
                       </div>
                     </div>
@@ -342,23 +422,27 @@ const TenantRegistration: React.FC = () => {
                         variant="outline"
                         size="sm"
                         onClick={() => handleRetryConnection(tenant)}
-                        disabled={tenant.connectionStatus === "testing"}
+                        disabled={testingTenantId === tenant.id || tenant.connectionStatus === "testing"}
                       >
-                        {tenant.connectionStatus === "testing" ? (
-                          <div className="w-3 h-3 border border-blue-600 border-t-transparent rounded-full animate-spin mr-2"></div>
+                        {testingTenantId === tenant.id ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Testing...
+                          </>
                         ) : (
-                          <CheckCircle className="w-3 h-3 mr-2" />
+                          <>
+                            <RefreshCw className="w-4 h-4 mr-2" />
+                            Test Connection
+                          </>
                         )}
-                        Test Connection
                       </Button>
 
                       <Button
-                        variant="outline"
+                        variant="destructive"
                         size="sm"
                         onClick={() => handleDeleteTenant(tenant.id)}
-                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
                       >
-                        <Trash2 className="w-3 h-3 mr-2" />
+                        <Trash2 className="w-4 h-4 mr-2" />
                         Delete
                       </Button>
                     </div>

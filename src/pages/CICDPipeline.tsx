@@ -1,375 +1,411 @@
-// File Path: src/pages/CICDPipeline.tsx
-// Filename: CICDPipeline.tsx
-import React, { useState } from "react";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import React, { useState, useEffect } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
-import { cn } from "@/lib/utils";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  Play,
-  CheckCircle,
-  Clock,
-  AlertCircle,
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
+import {
+  Search,
   Package,
-  Settings,
-  Shield,
-  Link as LinkIcon,
-  Upload,
-  Rocket,
-  TestTube,
+  Calendar,
+  User,
   ArrowRight,
-  History,
-  Sparkles,
+  Loader2,
+  RefreshCw,
+  ChevronLeft,
   ChevronRight,
-  List,
 } from "lucide-react";
+import { PipelineSAPService } from "@/lib/pipeline-sap-service";
 
-import Stage1PackageList from "@/components/pipeline/Stage1PackageList";
-import Stage2IFlowList from "@/components/pipeline/Stage2IFlowList";
-import Stage3Configuration from "@/components/pipeline/Stage3Configuration";
-import Stage4Validation from "@/components/pipeline/Stage4Validation";
-import Stage5Dependencies from "@/components/pipeline/Stage5Dependencies";
-import Stage6Upload from "@/components/pipeline/Stage6Upload";
-import Stage7Deploy from "@/components/pipeline/Stage7Deploy";
-import Stage8Testing from "@/components/pipeline/Stage8Testing";
+interface Package {
+  id: string;
+  name: string;
+  description: string;
+  version: string;
+  lastModified: string;
+  author: string;
+  iflowCount: number;
+  status: "active" | "draft" | "deprecated";
+}
 
-const CICDPipeline = () => {
-  const [currentStage, setCurrentStage] = useState(1);
-  const [completedStages, setCompletedStages] = useState<number[]>([]);
-  const [pipelineData, setPipelineData] = useState({
-    selectedPackages: [],
-    selectedIFlows: [],
-    configurations: {},
-    validationResults: {},
-    dependencies: {},
-    uploadStatus: {},
-    deploymentStatus: {},
-    testResults: {},
-  });
+// Fixed interface - added onPrevious property
+interface Stage1Props {
+  data: any;
+  onComplete: (data: any) => void;
+  onNext: () => void;
+  onPrevious: () => void; // Added this missing property
+}
 
-  const stages = [
-    {
-      id: 1,
-      title: "Package Selection",
-      shortTitle: "Packages",
-      description: "Select integration packages from sandbox tenant",
-      icon: Package,
-      component: Stage1PackageList,
-      color: "from-blue-500 to-blue-600",
-      lightColor: "from-blue-50 to-blue-100",
-    },
-    {
-      id: 2,
-      title: "iFlow Selection",
-      shortTitle: "iFlows",
-      description: "Choose specific iFlows for deployment",
-      icon: List,
-      component: Stage2IFlowList,
-      color: "from-indigo-500 to-indigo-600",
-      lightColor: "from-indigo-50 to-indigo-100",
-    },
-    {
-      id: 3,
-      title: "Configuration",
-      shortTitle: "Config",
-      description: "Configure environment-specific settings",
-      icon: Settings,
-      component: Stage3Configuration,
-      color: "from-purple-500 to-purple-600",
-      lightColor: "from-purple-50 to-purple-100",
-    },
-    {
-      id: 4,
-      title: "Design Validation",
-      shortTitle: "Validation",
-      description: "Validate against design guidelines",
-      icon: Shield,
-      component: Stage4Validation,
-      color: "from-pink-500 to-pink-600",
-      lightColor: "from-pink-50 to-pink-100",
-    },
-    {
-      id: 5,
-      title: "Dependencies",
-      shortTitle: "Dependencies",
-      description: "Validate interface dependencies",
-      icon: LinkIcon,
-      component: Stage5Dependencies,
-      color: "from-red-500 to-red-600",
-      lightColor: "from-red-50 to-red-100",
-    },
-    {
-      id: 6,
-      title: "Upload Artifacts",
-      shortTitle: "Upload",
-      description: "Upload to SAP Integration Suite",
-      icon: Upload,
-      component: Stage6Upload,
-      color: "from-orange-500 to-orange-600",
-      lightColor: "from-orange-50 to-orange-100",
-    },
-    {
-      id: 7,
-      title: "Deploy",
-      shortTitle: "Deploy",
-      description: "Deploy from design-time to runtime",
-      icon: Rocket,
-      component: Stage7Deploy,
-      color: "from-yellow-500 to-yellow-600",
-      lightColor: "from-yellow-50 to-yellow-100",
-    },
-    {
-      id: 8,
-      title: "Testing",
-      shortTitle: "Testing",
-      description: "Execute test suite and generate report",
-      icon: TestTube,
-      component: Stage8Testing,
-      color: "from-green-500 to-green-600",
-      lightColor: "from-green-50 to-green-100",
-    },
-  ];
+const Stage1PackageList: React.FC<Stage1Props> = ({
+  data,
+  onComplete,
+  onNext,
+  onPrevious, // Now properly destructured
+}) => {
+  const [packages, setPackages] = useState<Package[]>([]);
+  const [filteredPackages, setFilteredPackages] = useState<Package[]>([]);
+  const [sortedPackages, setSortedPackages] = useState<Package[]>([]);
+  const [selectedPackages, setSelectedPackages] = useState<string[]>(
+    data.selectedPackages || [],
+  );
+  const [searchTerm, setSearchTerm] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [packagesPerPage, setPackagesPerPage] = useState(10);
+  
+  // Calculate pagination values
+  const totalPages = Math.ceil(sortedPackages.length / packagesPerPage);
+  const startIndex = (currentPage - 1) * packagesPerPage;
+  const endIndex = startIndex + packagesPerPage;
+  const currentPackages = sortedPackages.slice(startIndex, endIndex);
 
-  const getStageStatus = (stageId: number) => {
-    if (completedStages.includes(stageId)) return "completed";
-    if (stageId === currentStage) return "active";
-    if (stageId < currentStage) return "completed";
-    return "pending";
-  };
+  useEffect(() => {
+    loadPackages();
+  }, []);
 
-  const progressPercentage = (completedStages.length / stages.length) * 100;
+  useEffect(() => {
+    // Filter packages based on search term
+    const filtered = packages.filter(
+      (pkg) =>
+        pkg.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        pkg.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        pkg.author.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+    setFilteredPackages(filtered);
+  }, [packages, searchTerm]);
 
-  const handleStageComplete = (stageId: number, data: any) => {
-    setCompletedStages((prev) => [...prev, stageId]);
-    setPipelineData((prev) => ({ ...prev, ...data }));
-    if (stageId < stages.length) {
-      setCurrentStage(stageId + 1);
+  useEffect(() => {
+    // Sort filtered packages (default: by name)
+    const sorted = [...filteredPackages].sort((a, b) =>
+      a.name.localeCompare(b.name)
+    );
+    setSortedPackages(sorted);
+    setCurrentPage(1); // Reset to first page when data changes
+  }, [filteredPackages]);
+
+  const loadPackages = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const packagesData = await PipelineSAPService.getPackages();
+      setPackages(packagesData);
+    } catch (err) {
+      setError("Failed to load packages from SAP tenant");
+      console.error("Error loading packages:", err);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleStageNavigation = (stageId: number) => {
-    if (stageId <= currentStage || completedStages.includes(stageId)) {
-      setCurrentStage(stageId);
+  const handlePackageSelection = (packageId: string, checked: boolean) => {
+    setSelectedPackages(prev => {
+      if (checked) {
+        return [...prev, packageId];
+      } else {
+        return prev.filter(id => id !== packageId);
+      }
+    });
+  };
+
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedPackages(currentPackages.map(pkg => pkg.id));
+    } else {
+      setSelectedPackages([]);
     }
   };
 
-  const CurrentStageComponent = stages[currentStage - 1]?.component;
+  const handleNext = () => {
+    // Validate selection before proceeding
+    if (selectedPackages.length === 0) {
+      setError("Please select at least one package to continue");
+      return;
+    }
 
-  return (
-    <div className="space-y-8">
-      {/* Hero Header */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-blue-600 via-purple-600 to-indigo-600 p-8 text-white shadow-2xl">
-        <div className="absolute inset-0 bg-black/20"></div>
-        <div className="absolute top-0 right-0 w-96 h-96 bg-white/10 rounded-full blur-3xl transform translate-x-32 -translate-y-32"></div>
-        <div className="relative flex items-center justify-between">
-          <div>
-            <div className="flex items-center space-x-3 mb-4">
-              <div className="p-3 bg-white/20 rounded-2xl backdrop-blur-sm">
-                <Rocket className="w-8 h-8" />
-              </div>
-              <Badge className="bg-white/20 text-white border-white/30 backdrop-blur-sm">
-                <Sparkles className="w-4 h-4 mr-2" />
-                Enterprise Pipeline
-              </Badge>
-            </div>
-            <h1 className="text-4xl font-black mb-2">
-              SAP CI/CD Pipeline Automation
-            </h1>
-            <p className="text-xl text-blue-100 max-w-2xl">
-              Streamline your SAP Integration Suite deployments with automated
-              pipeline management, validation, and testing.
-            </p>
-          </div>
-          <div className="hidden lg:block">
-            <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6">
-              <div className="text-center">
-                <div className="text-3xl font-bold">
-                  {Math.round(progressPercentage)}%
-                </div>
-                <div className="text-sm text-blue-100">Complete</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+    setError(null);
+    onComplete({ selectedPackages });
+    onNext();
+  };
 
-      {/* Pipeline Progress */}
-      <Card className="border-0 shadow-xl bg-gradient-to-r from-white to-blue-50">
+  const getStatusColor = (status: Package["status"]) => {
+    switch (status) {
+      case "active": return "bg-green-100 text-green-800 border-green-300";
+      case "draft": return "bg-yellow-100 text-yellow-800 border-yellow-300";
+      case "deprecated": return "bg-red-100 text-red-800 border-red-300";
+      default: return "bg-gray-100 text-gray-800 border-gray-300";
+    }
+  };
+
+  if (loading) {
+    return (
+      <Card>
+        <CardContent className="p-8 text-center">
+          <Loader2 className="w-8 h-8 text-blue-600 animate-spin mx-auto mb-4" />
+          <p className="text-gray-600">Loading packages from SAP tenant...</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (error) {
+    return (
+      <Card>
         <CardContent className="p-8">
-          {/* Progress Bar */}
-          <div className="mb-8">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-lg font-semibold bg-gradient-to-r from-gray-900 to-blue-900 bg-clip-text text-transparent">
-                Pipeline Progress
+          <div className="text-center space-y-4">
+            <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto">
+              <Package className="w-6 h-6 text-red-600" />
+            </div>
+            <div>
+              <h3 className="text-lg font-medium text-gray-900 mb-2">
+                Failed to Load Packages
               </h3>
-              <Badge className="bg-blue-100 text-blue-800 border-blue-300">
-                Stage {currentStage} of {stages.length}
-              </Badge>
-            </div>
-            <div className="relative">
-              <div className="w-full bg-gray-200 rounded-full h-3 shadow-inner">
-                <div
-                  className="bg-gradient-to-r from-blue-500 to-purple-500 h-3 rounded-full transition-all duration-700 shadow-lg opacity-90"
-                  style={{ width: `${progressPercentage}%` }}
-                ></div>
-              </div>
-            </div>
-          </div>
-
-          {/* Single Row Stage Navigation - Increased Width */}
-          <div className="relative">
-            <div className="flex space-x-2 overflow-x-auto pb-4 scrollbar-hide">
-              {stages.map((stage, index) => {
-                const Icon = stage.icon;
-                const status = getStageStatus(stage.id);
-                const isLast = index === stages.length - 1;
-
-                return (
-                  <div
-                    key={stage.id}
-                    className="flex items-center flex-shrink-0"
-                  >
-                    <button
-                      onClick={() => handleStageNavigation(stage.id)}
-                      className={cn(
-                        "relative flex flex-col items-center p-3 rounded-xl border-2 transition-all duration-500 min-w-[110px] w-[110px] group transform hover:scale-105",
-                        status === "completed" &&
-                          "border-green-300 bg-gradient-to-br from-green-50 to-emerald-50 text-green-800 shadow-lg shadow-green-500/20",
-                        status === "active" &&
-                          `border-blue-300 bg-gradient-to-br ${stage.lightColor} text-blue-800 shadow-xl shadow-blue-500/30`,
-                        status === "pending" &&
-                          "border-gray-200 bg-gradient-to-br from-gray-50 to-gray-100 text-gray-500 hover:border-gray-300 hover:shadow-md",
-                        (status === "active" || status === "completed") &&
-                          "cursor-pointer",
-                      )}
-                      disabled={status === "pending"}
-                    >
-                      {/* Glow effect for active/completed */}
-                      {(status === "active" || status === "completed") && (
-                        <div
-                          className={cn(
-                            "absolute inset-0 rounded-xl blur-lg opacity-15",
-                            status === "completed"
-                              ? "bg-green-500"
-                              : "bg-blue-500",
-                          )}
-                        ></div>
-                      )}
-
-                      {/* Icon */}
-                      <div className="relative mb-2">
-                        <Icon
-                          className={cn(
-                            "w-6 h-6 transition-all duration-300",
-                            status === "completed"
-                              ? "text-green-600"
-                              : status === "active"
-                                ? "text-blue-600"
-                                : "text-gray-400",
-                          )}
-                        />
-                        {status === "completed" && (
-                          <CheckCircle className="absolute -top-1 -right-1 w-4 h-4 text-green-500 bg-white rounded-full" />
-                        )}
-                      </div>
-
-                      {/* Stage Title */}
-                      <div className="text-center">
-                        <div className="text-xs font-semibold leading-tight mb-1">
-                          {stage.shortTitle}
-                        </div>
-                        <div className="text-[10px] leading-tight opacity-80 line-clamp-2">
-                          {stage.description}
-                        </div>
-                      </div>
-
-                      {/* Status indicator */}
-                      <div className="absolute -bottom-1 left-1/2 transform -translate-x-1/2">
-                        <div
-                          className={cn(
-                            "w-2 h-2 rounded-full transition-all duration-300",
-                            status === "completed"
-                              ? "bg-green-500"
-                              : status === "active"
-                                ? "bg-blue-500"
-                                : "bg-gray-300",
-                          )}
-                        />
-                      </div>
-                    </button>
-
-                    {/* Arrow connector between stages */}
-                    {!isLast && (
-                      <div className="flex-shrink-0 mx-1">
-                        <ChevronRight
-                          className={cn(
-                            "w-4 h-4 transition-colors duration-300",
-                            status === "completed"
-                              ? "text-green-500"
-                              : status === "active"
-                                ? "text-blue-500"
-                                : "text-gray-300",
-                          )}
-                        />
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+              <p className="text-gray-600 mb-4">{error}</p>
+              <Button onClick={loadPackages} variant="outline">
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Retry
+              </Button>
             </div>
           </div>
         </CardContent>
       </Card>
+    );
+  }
 
-      {/* Current Stage Content */}
-      <Card className="border-0 shadow-2xl bg-white/90 backdrop-blur-sm overflow-hidden">
-        <div
-          className={`h-2 bg-gradient-to-r ${stages[currentStage - 1]?.color}`}
-        ></div>
-        <CardHeader className="bg-gradient-to-r from-gray-50/50 to-blue-50/50">
+  return (
+    <div className="space-y-6">
+      {/* Search and Filter Controls */}
+      <Card>
+        <CardContent className="p-4">
           <div className="flex items-center space-x-4">
-            <div
-              className={`p-4 rounded-2xl bg-gradient-to-br ${stages[currentStage - 1]?.color} shadow-lg`}
-            >
-              {React.createElement(stages[currentStage - 1]?.icon, {
-                className: "w-8 h-8 text-white",
-              })}
+            <div className="flex-1 relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+              <Input
+                placeholder="Search packages by name, description, or author..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10"
+              />
             </div>
+            <Select
+              value={packagesPerPage.toString()}
+              onValueChange={(value) => setPackagesPerPage(parseInt(value))}
+            >
+              <SelectTrigger className="w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="5">5 per page</SelectItem>
+                <SelectItem value="10">10 per page</SelectItem>
+                <SelectItem value="20">20 per page</SelectItem>
+                <SelectItem value="50">50 per page</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Package List */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
             <div>
-              <CardTitle className="text-2xl font-bold bg-gradient-to-r from-gray-900 to-blue-900 bg-clip-text text-transparent">
-                Stage {currentStage}: {stages[currentStage - 1]?.title}
+              <CardTitle className="flex items-center space-x-2">
+                <Package className="w-6 h-6 text-blue-600" />
+                <span>Integration Packages</span>
+                <Badge variant="outline">
+                  {sortedPackages.length} packages
+                </Badge>
               </CardTitle>
-              <CardDescription className="text-lg">
-                {stages[currentStage - 1]?.description}
-              </CardDescription>
+              <p className="text-sm text-gray-600 mt-1">
+                Select packages to proceed to iFlow selection
+              </p>
+            </div>
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="select-all"
+                checked={
+                  currentPackages.length > 0 &&
+                  currentPackages.every(pkg => selectedPackages.includes(pkg.id))
+                }
+                onCheckedChange={handleSelectAll}
+              />
+              <label htmlFor="select-all" className="text-sm font-medium">
+                Select All ({currentPackages.length})
+              </label>
             </div>
           </div>
         </CardHeader>
-        <CardContent className="p-8">
-          {CurrentStageComponent && (
-            <CurrentStageComponent
-              data={pipelineData}
-              onComplete={(data: any) =>
-                handleStageComplete(currentStage, data)
-              }
-              onNext={() =>
-                setCurrentStage(Math.min(currentStage + 1, stages.length))
-              }
-              onPrevious={() => setCurrentStage(Math.max(currentStage - 1, 1))}
-            />
+        <CardContent>
+          <div className="space-y-3">
+            {currentPackages.map((pkg) => (
+              <div
+                key={pkg.id}
+                className={`p-4 rounded-lg border-2 transition-all duration-200 ${
+                  selectedPackages.includes(pkg.id)
+                    ? "border-blue-300 bg-blue-50"
+                    : "border-gray-200 hover:border-gray-300"
+                }`}
+              >
+                <div className="flex items-start space-x-4">
+                  <Checkbox
+                    id={`package-${pkg.id}`}
+                    checked={selectedPackages.includes(pkg.id)}
+                    onCheckedChange={(checked) =>
+                      handlePackageSelection(pkg.id, checked as boolean)
+                    }
+                    className="mt-1"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-2">
+                      <label
+                        htmlFor={`package-${pkg.id}`}
+                        className="font-medium text-gray-900 cursor-pointer"
+                      >
+                        {pkg.name}
+                      </label>
+                      <Badge className={getStatusColor(pkg.status)}>
+                        {pkg.status}
+                      </Badge>
+                    </div>
+                    
+                    <p className="text-sm text-gray-600 mb-3 line-clamp-2">
+                      {pkg.description}
+                    </p>
+                    
+                    <div className="flex items-center space-x-6 text-xs text-gray-500">
+                      <div className="flex items-center space-x-1">
+                        <User className="w-3 h-3" />
+                        <span>{pkg.author}</span>
+                      </div>
+                      <div className="flex items-center space-x-1">
+                        <Calendar className="w-3 h-3" />
+                        <span>
+                          {new Date(pkg.lastModified).toLocaleDateString()}
+                        </span>
+                      </div>
+                      <div className="flex items-center space-x-1">
+                        <Package className="w-3 h-3" />
+                        <span>{pkg.iflowCount} iFlows</span>
+                      </div>
+                      <div>
+                        <span>v{pkg.version}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            {currentPackages.length === 0 && (
+              <div className="text-center py-8">
+                <Package className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                <p className="text-gray-600">
+                  {searchTerm
+                    ? "No packages found matching your search criteria"
+                    : "No packages available"}
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="mt-6 flex items-center justify-between">
+              <p className="text-sm text-gray-600">
+                Showing {startIndex + 1} to {Math.min(endIndex, sortedPackages.length)} of{" "}
+                {sortedPackages.length} packages
+              </p>
+              <Pagination>
+                <PaginationContent>
+                  <PaginationItem>
+                    <PaginationPrevious
+                      onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                      className={currentPage <= 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                    />
+                  </PaginationItem>
+                  
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    const pageNum = i + 1;
+                    return (
+                      <PaginationItem key={pageNum}>
+                        <PaginationLink
+                          onClick={() => setCurrentPage(pageNum)}
+                          isActive={currentPage === pageNum}
+                          className="cursor-pointer"
+                        >
+                          {pageNum}
+                        </PaginationLink>
+                      </PaginationItem>
+                    );
+                  })}
+                  
+                  {totalPages > 5 && (
+                    <PaginationItem>
+                      <PaginationEllipsis />
+                    </PaginationItem>
+                  )}
+                  
+                  <PaginationItem>
+                    <PaginationNext
+                      onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                      className={currentPage >= totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                    />
+                  </PaginationItem>
+                </PaginationContent>
+              </Pagination>
+            </div>
           )}
         </CardContent>
       </Card>
+
+      {/* Action Buttons */}
+      <div className="flex items-center justify-between">
+        <Button
+          variant="outline"
+          onClick={onPrevious}
+          className="flex items-center space-x-2"
+        >
+          <ChevronLeft className="w-4 h-4" />
+          <span>Previous</span>
+        </Button>
+
+        <div className="flex items-center space-x-4">
+          {selectedPackages.length > 0 && (
+            <Badge variant="outline" className="px-3 py-1">
+              {selectedPackages.length} package{selectedPackages.length !== 1 ? 's' : ''} selected
+            </Badge>
+          )}
+          <Button
+            onClick={handleNext}
+            disabled={selectedPackages.length === 0}
+            className="flex items-center space-x-2"
+          >
+            <span>Next: Select iFlows</span>
+            <ArrowRight className="w-4 h-4" />
+          </Button>
+        </div>
+      </div>
+
+      {error && selectedPackages.length === 0 && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <p className="text-red-700 text-sm">{error}</p>
+        </div>
+      )}
     </div>
   );
 };
 
-export default CICDPipeline;
+export default Stage1PackageList;
