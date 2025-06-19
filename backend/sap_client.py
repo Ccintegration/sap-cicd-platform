@@ -1,4 +1,4 @@
-# backend/sap_client.py - Enhanced version with better configuration handling
+# backend/sap_client.py - Fixed constructor to accept SAPCredentials object
 
 import httpx
 import logging
@@ -6,18 +6,59 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 import json
 import asyncio
+from pydantic import BaseModel
+import httpx
+import logging
+from datetime import datetime, timedelta
+from typing import List, Dict, Any, Optional
+from pydantic import BaseModel
+from models import IntegrationPackage, IntegrationFlow, TokenInfo, TenantConfig
+import urllib.parse
 
 logger = logging.getLogger(__name__)
 
+class SAPCredentials(BaseModel):
+    client_id: str
+    client_secret: str
+    token_url: str
+    base_url: str
+    auth_url: Optional[str] = None
+
+
 class SAPIntegrationSuiteClient:
-    def __init__(self, client_id: str, client_secret: str, token_url: str, base_url: str):
-        self.client_id = client_id
-        self.client_secret = client_secret
-        self.token_url = token_url
-        self.base_url = base_url
+    def __init__(self, credentials: SAPCredentials):
+        """
+        Initialize SAP Integration Suite Client with credentials object
+        
+        Args:
+            credentials: SAPCredentials object containing all authentication details
+        """
+        self.client_id = credentials.client_id
+        self.client_secret = credentials.client_secret
+        self.token_url = credentials.token_url
+        self.base_url = credentials.base_url
         self.access_token = None
         self.token_expires_at = None
         self._token_lock = asyncio.Lock()
+
+    @classmethod
+    def from_individual_params(cls, client_id: str, client_secret: str, token_url: str, base_url: str):
+        """
+        Alternative constructor for backward compatibility
+        
+        Args:
+            client_id: OAuth client ID
+            client_secret: OAuth client secret
+            token_url: OAuth token endpoint URL
+            base_url: SAP Integration Suite base URL
+        """
+        credentials = SAPCredentials(
+            client_id=client_id,
+            client_secret=client_secret,
+            token_url=token_url,
+            base_url=base_url
+        )
+        return cls(credentials)
 
     async def _get_auth_headers(self) -> Dict[str, str]:
         """Get authentication headers with valid token"""
@@ -391,6 +432,72 @@ class SAPIntegrationSuiteClient:
             logger.error(f"🔄 Failed to fetch all integration flows: {str(e)}")
             raise Exception(f"Failed to fetch integration flows: {str(e)}")
 
+    # Add missing methods that are referenced in main.py
+    async def get_integration_flows(self, package_ids: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+        """Get integration flows, optionally filtered by package IDs"""
+        if package_ids:
+            # Fetch flows from specific packages
+            all_flows = []
+            for package_id in package_ids:
+                try:
+                    flows = await self.get_integration_flows_by_package(package_id)
+                    all_flows.extend(flows)
+                except Exception as e:
+                    logger.warning(f"Failed to fetch flows for package {package_id}: {str(e)}")
+            return all_flows
+        else:
+            # Fetch all flows
+            return await self.get_all_integration_flows()
+
+    async def get_design_guidelines(self, iflow_id: str, version: str, execution_id: Optional[str] = None) -> Dict[str, Any]:
+        """Get design guidelines execution results for a specific integration flow"""
+        # Placeholder implementation - you'll need to implement based on SAP API
+        logger.info(f"Getting design guidelines for {iflow_id} (version: {version}, execution: {execution_id})")
+        return {"message": "Design guidelines not implemented yet"}
+
+    async def execute_design_guidelines(self, iflow_id: str, version: str) -> Dict[str, Any]:
+        """Execute design guidelines for a specific integration flow"""
+        # Placeholder implementation - you'll need to implement based on SAP API
+        logger.info(f"Executing design guidelines for {iflow_id} (version: {version})")
+        return {"message": "Design guidelines execution not implemented yet"}
+
+    async def get_iflow_resources(self, iflow_id: str, version: str) -> List[Dict[str, Any]]:
+        """Get resources/dependencies for a specific integration flow"""
+        # Placeholder implementation - you'll need to implement based on SAP API
+        logger.info(f"Getting resources for {iflow_id} (version: {version})")
+        return []
+
+    async def deploy_iflow(self, iflow_id: str, version: str, target_environment: str) -> Dict[str, Any]:
+        """Deploy integration flow to runtime"""
+        # Placeholder implementation - you'll need to implement based on SAP API
+        logger.info(f"Deploying {iflow_id} (version: {version}) to {target_environment}")
+        return {"message": "Deployment not implemented yet"}
+
+    async def get_package_details(self, package_id: str) -> Dict[str, Any]:
+        """Get detailed information about a specific integration package"""
+        # Placeholder implementation - you'll need to implement based on SAP API
+        logger.info(f"Getting package details for {package_id}")
+        return {"message": "Package details not implemented yet"}
+
+    async def get_iflow_details(self, iflow_id: str) -> Dict[str, Any]:
+        """Get detailed information about a specific integration flow"""
+        # Placeholder implementation - you'll need to implement based on SAP API
+        logger.info(f"Getting iflow details for {iflow_id}")
+        return {"message": "iFlow details not implemented yet"}
+
+    async def refresh_token(self):
+        """Public method to refresh token"""
+        await self._refresh_token()
+
+    async def get_token_status(self) -> Dict[str, Any]:
+        """Get current OAuth token status"""
+        return {
+            "has_token": self.access_token is not None,
+            "expires_at": self.token_expires_at.isoformat() if self.token_expires_at else None,
+            "is_expired": self._is_token_expired(),
+            "client_id": self.client_id[:8] + "..." if self.client_id else None
+        }
+
 # Usage example and test function
 async def test_sap_client():
     """Test function for the SAP client"""
@@ -406,7 +513,15 @@ async def test_sap_client():
         logger.error("Missing required SAP credentials in environment variables")
         return
     
-    client = SAPIntegrationSuiteClient(client_id, client_secret, token_url, base_url)
+    # Use the new constructor approach
+    credentials = SAPCredentials(
+        client_id=client_id,
+        client_secret=client_secret,
+        token_url=token_url,
+        base_url=base_url
+    )
+    
+    client = SAPIntegrationSuiteClient(credentials)
     
     # Test connection
     result = await client.test_connection()

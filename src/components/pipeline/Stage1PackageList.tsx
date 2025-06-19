@@ -1,5 +1,3 @@
-// File Path: src/components/pipeline/Stage1PackageList.tsx
-// Filename: Stage1PackageList.tsx
 import React, { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -40,25 +38,25 @@ interface Package {
   status: "active" | "draft" | "deprecated";
 }
 
-// Fixed interface - added onPrevious property
+// Fixed interface - made data optional and provided default
 interface Stage1Props {
-  data: any;
+  data?: any; // Made optional to handle undefined
   onComplete: (data: any) => void;
   onNext: () => void;
-  onPrevious: () => void; // Added this missing property
+  onPrevious: () => void;
 }
 
 const Stage1PackageList: React.FC<Stage1Props> = ({
-  data,
+  data = {}, // Default empty object to prevent undefined errors
   onComplete,
   onNext,
-  onPrevious, // Now properly destructured
+  onPrevious,
 }) => {
   const [packages, setPackages] = useState<Package[]>([]);
   const [filteredPackages, setFilteredPackages] = useState<Package[]>([]);
   const [sortedPackages, setSortedPackages] = useState<Package[]>([]);
   const [selectedPackages, setSelectedPackages] = useState<string[]>(
-    data.selectedPackages || [],
+    data?.selectedPackages || [] // Safe access with optional chaining
   );
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(true);
@@ -79,20 +77,20 @@ const Stage1PackageList: React.FC<Stage1Props> = ({
   }, []);
 
   useEffect(() => {
-    // Filter packages based on search term
+    // Filter packages based on search term with safe property access
     const filtered = packages.filter(
       (pkg) =>
-        pkg.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        pkg.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        pkg.author.toLowerCase().includes(searchTerm.toLowerCase())
+        pkg.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        pkg.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        pkg.author?.toLowerCase().includes(searchTerm.toLowerCase())
     );
     setFilteredPackages(filtered);
   }, [packages, searchTerm]);
 
   useEffect(() => {
-    // Sort filtered packages (default: by name)
+    // Sort filtered packages (default: by name) with safe property access
     const sorted = [...filteredPackages].sort((a, b) =>
-      a.name.localeCompare(b.name)
+      (a.name || '').localeCompare(b.name || '')
     );
     setSortedPackages(sorted);
     setCurrentPage(1); // Reset to first page when data changes
@@ -102,8 +100,7 @@ const Stage1PackageList: React.FC<Stage1Props> = ({
     setLoading(true);
     setError(null);
     try {
-      // FIXED: Use getIntegrationPackages instead of getPackages
-      const packagesData = await PipelineSAPService.getIntegrationPackages();
+      const packagesData = await PipelineSAPService.getPackages();
       setPackages(packagesData);
     } catch (err) {
       setError("Failed to load packages from SAP tenant");
@@ -125,9 +122,20 @@ const Stage1PackageList: React.FC<Stage1Props> = ({
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
-      setSelectedPackages(currentPackages.map(pkg => pkg.id));
+      // Select all packages on current page
+      const currentPageIds = currentPackages.map(pkg => pkg.id);
+      setSelectedPackages(prev => {
+        // Add current page packages to existing selection
+        const combined = [...prev, ...currentPageIds];
+        // Remove duplicates
+        return Array.from(new Set(combined));
+      });
     } else {
-      setSelectedPackages([]);
+      // Deselect all packages on current page
+      const currentPageIds = currentPackages.map(pkg => pkg.id);
+      setSelectedPackages(prev => 
+        prev.filter(id => !currentPageIds.includes(id))
+      );
     }
   };
 
@@ -152,6 +160,10 @@ const Stage1PackageList: React.FC<Stage1Props> = ({
     }
   };
 
+  // Check if all current page packages are selected
+  const isAllCurrentPageSelected = currentPackages.length > 0 && 
+    currentPackages.every(pkg => selectedPackages.includes(pkg.id));
+
   if (loading) {
     return (
       <Card>
@@ -163,7 +175,7 @@ const Stage1PackageList: React.FC<Stage1Props> = ({
     );
   }
 
-  if (error) {
+  if (error && packages.length === 0) {
     return (
       <Card>
         <CardContent className="p-8">
@@ -239,10 +251,7 @@ const Stage1PackageList: React.FC<Stage1Props> = ({
             <div className="flex items-center space-x-2">
               <Checkbox
                 id="select-all"
-                checked={
-                  currentPackages.length > 0 &&
-                  currentPackages.every(pkg => selectedPackages.includes(pkg.id))
-                }
+                checked={isAllCurrentPageSelected}
                 onCheckedChange={handleSelectAll}
               />
               <label htmlFor="select-all" className="text-sm font-medium">
@@ -267,7 +276,7 @@ const Stage1PackageList: React.FC<Stage1Props> = ({
                     id={`package-${pkg.id}`}
                     checked={selectedPackages.includes(pkg.id)}
                     onCheckedChange={(checked) =>
-                      handlePackageSelection(pkg.id, checked as boolean)
+                      handlePackageSelection(pkg.id, !!checked)
                     }
                     className="mt-1"
                   />

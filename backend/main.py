@@ -20,7 +20,7 @@ import csv
 from pathlib import Path
 
 from config import Settings, get_settings
-from sap_client import SAPClient, SAPCredentials
+from sap_client import SAPIntegrationSuiteClient, SAPCredentials
 from models import (
     IntegrationFlow,
     BaseTenantData,
@@ -53,7 +53,7 @@ app.add_middleware(
 )
 
 # Global SAP client instance
-sap_client: Optional[SAPClient] = None
+sap_client: Optional[SAPIntegrationSuiteClient] = None
 
 @app.on_event("startup")
 async def startup_event():
@@ -69,7 +69,7 @@ async def startup_event():
         base_url=settings.sap_base_url
     )
 
-    sap_client = SAPClient(credentials)
+    sap_client = SAPIntegrationSuiteClient(credentials)
     logger.info("SAP Client initialized successfully")
 
 @app.get("/")
@@ -124,7 +124,7 @@ async def test_tenant_connection(tenant_config: TenantConfig) -> ConnectionTestR
             base_url=tenant_config.base_url
         )
 
-        temp_client = SAPClient(credentials)
+        temp_client = SAPIntegrationSuiteClient(credentials)
 
         # Test authentication
         start_time = datetime.now()
